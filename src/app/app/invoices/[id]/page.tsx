@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireUserId } from "@/lib/session";
 import { getInvoice } from "@/lib/invoices";
+import { todayIso } from "@/lib/status";
 import { InvoiceEditor } from "./InvoiceEditor";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +25,12 @@ export default async function EditInvoicePage({
   return (
     <InvoiceEditor
       id={invoice.id}
-      status={invoice.status}
+      initialStatus={invoice.status}
       initialDocument={invoice.document}
+      // Resolved on the server and passed down so the derived `overdue` badge
+      // renders identically on both sides of hydration — reading the clock in
+      // the client component would risk a mismatch.
+      today={todayIso()}
     />
   );
 }

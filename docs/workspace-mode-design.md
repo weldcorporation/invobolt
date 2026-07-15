@@ -163,6 +163,22 @@ instead of load/save-to-localStorage.
 status and reuses the existing status colours (`paid`, `overdue` tokens already
 exist in the Tailwind theme).
 
+As built (`lib/status.ts` owns the machine; the schema imports the type from it,
+so client components get `InvoiceStatus` without pulling in Drizzle):
+
+- Each forward edge has an undo, because the forward edge is one click and
+  people mis-click: `sent → draft`, `paid → sent`, `void → draft`. `void` is
+  reachable from any live status; nothing transitions to itself, and
+  `draft → paid` must go through `sent`.
+- Legality is enforced in the UPDATE's `WHERE` (`status IN sourcesFor(next)`)
+  rather than by reading the row first, so the check is atomic — two tabs racing
+  to mark one invoice paid cannot both observe `sent` and both apply.
+- The status arriving at the Server Action is narrowed at runtime
+  (`isInvoiceStatus`), since the type annotation is erased in the compiled
+  output and the action is a public endpoint.
+- `overdue` is recomputed on every read from a server-supplied `today`, never
+  written. Due *today* is not yet overdue.
+
 **Saved clients.** A `Party` picker in the form that reads from `clients`.
 Selecting one fills `invoice.client`; a "save this client" action upserts. Purely
 additive to the existing form.
@@ -221,7 +237,7 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
    authenticated page.
 3. ✅ **Invoice persistence** — list + editor on `/app`, autosave, reuse of
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
-4. **Status tracking** — status column + transitions + derived overdue in the list.
+4. ✅ **Status tracking** — status column + transitions + derived overdue in the list.
 5. **Saved clients** — `clients` CRUD + form picker.
 6. **Shareable page** — `share_token` + `/i/[token]` read-only route.
 7. **Profile import** — one-time localStorage → account seeding.

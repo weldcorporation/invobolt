@@ -9,11 +9,11 @@
  */
 
 import "server-only";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import { deriveInvoiceColumns, nextInvoiceNumber } from "./invoice-row";
 import { emptyInvoice } from "./sample";
-import type { InvoiceStatus } from "./db/schema";
+import { sourcesFor, type InvoiceStatus } from "./status";
 import type { Invoice } from "./types";
 
 const { invoices } = schema;
@@ -189,6 +189,38 @@ export async function saveInvoice(
     .returning({ id: invoices.id });
 
   return updated.length > 0;
+}
+
+export type StatusChange = "ok" | "not-found" | "illegal";
+
+/**
+ * Move an invoice to `next`, if that transition is legal from where it is now.
+ *
+ * The legality check lives in the WHERE clause rather than in a read-then-write:
+ * `status IN sourcesFor(next)` makes the whole thing one atomic statement, so
+ * two tabs racing to mark the same invoice paid can't both observe `sent` and
+ * both apply. The loser simply matches no rows.
+ *
+ * Only on failure do we spend a second query, to tell "you don't own this" apart
+ * from "that move isn't allowed".
+ */
+export async function setInvoiceStatus(
+  userId: string,
+  id: string,
+  next: InvoiceStatus,
+): Promise<StatusChange> {
+  if (!UUID.test(id)) return "not-found";
+
+  const moved = await getDb()
+    .update(invoices)
+    .set({ status: next, updatedAt: new Date() })
+    .where(
+      and(ownedInvoice(userId, id), inArray(invoices.status, sourcesFor(next))),
+    )
+    .returning({ id: invoices.id });
+
+  if (moved.length > 0) return "ok";
+  return (await getInvoice(userId, id)) ? "illegal" : "not-found";
 }
 
 /** Delete an invoice the user owns. Returns false if there was nothing to delete. */

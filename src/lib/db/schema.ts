@@ -27,6 +27,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type { Invoice, Party } from "@/lib/types";
+import type { InvoiceStatus } from "@/lib/status";
 
 /** Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id. */
 export const clients = pgTable(
@@ -45,8 +46,13 @@ export const clients = pgTable(
   (t) => [index("clients_user_id_idx").on(t.userId)],
 );
 
-/** Invoice status. `overdue` is derived (sent + past due), never stored. */
-export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
+/**
+ * Invoice status. The type and its state machine live in `lib/status.ts` — the
+ * domain owns the rule, the schema just annotates the column with it — so
+ * client components can import the type without pulling Drizzle into their
+ * bundle. `overdue` is derived (sent + past due), never stored.
+ */
+export type { InvoiceStatus };
 
 /**
  * Invoices. The full `Invoice` object lives in `document`; the lifted columns

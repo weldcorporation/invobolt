@@ -6,9 +6,18 @@ import { InvoiceForm } from "@/components/InvoiceForm";
 import { InvoiceDocument } from "@/components/InvoiceDocument";
 import { validateInvoice } from "@/lib/invoice-row";
 import { ui } from "@/lib/i18n";
+import {
+  TRANSITIONS,
+  displayStatus,
+  transitionLabel,
+  type InvoiceStatus,
+} from "@/lib/status";
 import type { Invoice, Locale } from "@/lib/types";
-import type { InvoiceStatus } from "@/lib/db/schema";
-import { deleteInvoiceAction, saveInvoiceAction } from "../../actions";
+import {
+  deleteInvoiceAction,
+  saveInvoiceAction,
+  setInvoiceStatusAction,
+} from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
 
 /**
@@ -26,8 +35,10 @@ type SaveState =
 
 interface Props {
   id: string;
-  status: InvoiceStatus;
+  initialStatus: InvoiceStatus;
   initialDocument: Invoice;
+  /** Today, per the server — see the page component. */
+  today: string;
 }
 
 /**
@@ -38,8 +49,15 @@ interface Props {
  * a debounced Server Action instead of localStorage. There is no save button by
  * design (see the design doc's resolved decision 3).
  */
-export function InvoiceEditor({ id, status, initialDocument }: Props) {
+export function InvoiceEditor({
+  id,
+  initialStatus,
+  initialDocument,
+  today,
+}: Props) {
   const [invoice, setInvoice] = useState<Invoice>(initialDocument);
+  const [status, setStatus] = useState<InvoiceStatus>(initialStatus);
+  const [movingTo, setMovingTo] = useState<InvoiceStatus | null>(null);
   const [uiLocale, setUiLocale] = useState<Locale>(initialDocument.locale);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
@@ -99,6 +117,24 @@ export function InvoiceEditor({ id, status, initialDocument }: Props) {
     };
   }, [id]);
 
+  const onTransition = async (to: InvoiceStatus) => {
+    setMovingTo(to);
+    try {
+      const result = await setInvoiceStatusAction(id, to);
+      // The server re-checks the transition against the row's *current* status,
+      // so trust its answer over our optimistic view of where we were.
+      if (result.ok) setStatus(to);
+      else setSaveState({ kind: "error", message: result.error });
+    } catch {
+      setSaveState({
+        kind: "error",
+        message: "Couldn't reach the server — the status is unchanged.",
+      });
+    } finally {
+      setMovingTo(null);
+    }
+  };
+
   const onDelete = async () => {
     if (!window.confirm("Delete this invoice? This cannot be undone.")) return;
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -108,6 +144,9 @@ export function InvoiceEditor({ id, status, initialDocument }: Props) {
 
   const s = ui(uiLocale);
   const preview = useMemo(() => <InvoiceDocument invoice={invoice} />, [invoice]);
+  // Follows the due date as it is edited, so clearing an overdue date updates
+  // the badge immediately rather than after a reload.
+  const shown = displayStatus(status, invoice.dueDate || null, today);
 
   return (
     <div className="space-y-4">
@@ -120,7 +159,6 @@ export function InvoiceEditor({ id, status, initialDocument }: Props) {
             ← All invoices
           </Link>
           <h1 className="text-lg font-bold tracking-tight">{invoice.number}</h1>
-          <StatusBadge status={status} />
         </div>
 
         <div className="flex items-center gap-2">
@@ -155,6 +193,38 @@ export function InvoiceEditor({ id, status, initialDocument }: Props) {
           >
             ⚡ {s.exportPdf}
           </button>
+        </div>
+      </div>
+
+      {/* Only legal transitions are offered — the state machine decides what
+          appears here, and the server re-checks it before anything moves. */}
+      <div className="no-print flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
+          Status
+        </span>
+        <StatusBadge status={shown} />
+        {shown === "overdue" && (
+          <span className="text-xs text-neutral-500">
+            sent, past its {invoice.dueDate} due date
+          </span>
+        )}
+
+        <div className="ml-auto flex flex-wrap items-center gap-1">
+          {TRANSITIONS[status].map((to) => (
+            <button
+              key={to}
+              type="button"
+              disabled={movingTo !== null}
+              onClick={() => void onTransition(to)}
+              className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                to === "void"
+                  ? "border-neutral-300 text-neutral-600 hover:border-overdue hover:text-overdue dark:border-neutral-700 dark:text-neutral-300"
+                  : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {movingTo === to ? "…" : transitionLabel(status, to)}
+            </button>
+          ))}
         </div>
       </div>
 

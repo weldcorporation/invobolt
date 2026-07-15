@@ -17,7 +17,9 @@ import {
   deleteInvoice,
   isUniqueViolation,
   saveInvoice,
+  setInvoiceStatus,
 } from "@/lib/invoices";
+import { isInvoiceStatus } from "@/lib/status";
 import type { Invoice } from "@/lib/types";
 
 /** Create a draft and open it. */
@@ -60,6 +62,34 @@ export async function saveInvoiceAction(
   }
 
   revalidatePath("/app");
+  return { ok: true };
+}
+
+/**
+ * Move an invoice to another status.
+ *
+ * `next` is narrowed at runtime rather than trusted: this is a public endpoint
+ * and the `InvoiceStatus` annotation is erased in the compiled output, so
+ * without the check any string a caller sent would land in the column.
+ */
+export async function setInvoiceStatusAction(
+  id: string,
+  next: unknown,
+): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  if (!isInvoiceStatus(next)) return { ok: false, error: "Unknown status." };
+
+  const result = await setInvoiceStatus(userId, id, next);
+  if (result === "not-found") {
+    return { ok: false, error: "This invoice no longer exists." };
+  }
+  if (result === "illegal") {
+    return { ok: false, error: `This invoice can't be moved to ${next}.` };
+  }
+
+  revalidatePath("/app");
+  revalidatePath(`/app/invoices/${id}`);
   return { ok: true };
 }
 
