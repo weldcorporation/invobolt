@@ -50,7 +50,7 @@ Concretely:
          ▼                              ▼
   /  (instant mode)            /app/**  (workspace mode)
   client-only, localStorage    server components + route handlers
-  NOTHING leaves the browser   Auth.js session + Drizzle/Neon
+  NOTHING leaves the browser   Neon Auth session + Drizzle/Neon
 ```
 
 The `Invoice` model is already plain JSON with no methods (see
@@ -66,25 +66,25 @@ store the invoice document as JSON and lift out only the columns we query or ind
 on (owner, status, dates, number). This keeps parity with instant mode and lets
 the templates render a row with no translation layer.
 
-```
-users
-  id            uuid  pk
-  email         text  unique not null
-  created_at    timestamptz not null default now()
+Users are **not** an app-owned table: authentication is handled by Neon Auth (see
+below), which manages user records in the Neon-managed `neon_auth` schema. Our
+tables key off the Neon Auth user id (a string) and join to `neon_auth.users_sync`
+only for display.
 
--- Auth.js adapter tables (accounts, sessions, verification_tokens) live
--- alongside; schema comes from @auth/drizzle-adapter.
+```
+-- Users live in Neon Auth's managed `neon_auth` schema (neon_auth.users_sync),
+-- created and synced by Neon — NOT migrated by this app.
 
 clients                       -- the "saved clients" feature
   id            uuid  pk
-  user_id       uuid  fk -> users.id  not null
+  user_id       text  not null        -- Neon Auth user id (no hard cross-schema FK)
   party         jsonb not null        -- a Party object
   created_at    timestamptz not null default now()
   updated_at    timestamptz not null default now()
 
 invoices
   id            uuid  pk
-  user_id       uuid  fk -> users.id  not null
+  user_id       text  not null        -- Neon Auth user id (no hard cross-schema FK)
   number        text  not null        -- unique per user (see below)
   status        text  not null default 'draft'
                     -- 'draft' | 'sent' | 'paid' | 'void'
@@ -109,18 +109,36 @@ Notes:
   existing `computeTotals` on every write, never hand-edited.
 - `overdue` is derived, not stored — matches how the UI already thinks about it.
 - All rows are owner-scoped; **every query filters by `user_id`** (see Security).
+- The app migrates only `clients` and `invoices`; the `neon_auth` schema is
+  provisioned and maintained by Neon Auth, not by our Drizzle migrations.
 
-## Auth: magic link (Auth.js)
+## Auth: Neon Auth (Managed Better Auth)
 
-- **Auth.js v5** (`next-auth`) with the **Drizzle adapter** and the **Email
-  (magic-link) provider** only. No OAuth, no credentials/passwords in v0.2.
-- Email transport is the same one v0.3 will reuse (Resend). `AUTH_SECRET`,
-  `AUTH_URL`, `EMAIL_FROM`, `RESEND_API_KEY` are already stubbed in
-  [`.env.example`](../.env.example).
-- Session strategy: database sessions (the adapter is already there), httpOnly
-  secure cookie, scoped so it is **never read on `/`**.
-- Middleware guards `/app/**` only. The matcher explicitly excludes `/`, static
-  assets, and the public share route so instant mode never touches auth.
+Authentication uses **Neon Auth**, Neon's managed auth service (powered by Better
+Auth), via the [`@neondatabase/auth`](https://www.npmjs.com/package/@neondatabase/auth)
+SDK. Neon Auth runs the auth server, sends magic-link emails, and syncs users into
+the `neon_auth` schema of the same database — so there is no adapter, no app-owned
+user/session tables, and no separate email provider to run for sign-in.
+
+- **Server** (`@neondatabase/auth/next/server`): a single `createNeonAuth({ baseUrl,
+  cookies: { secret } })` instance exposes `.handler()` (the `/api/auth/[...path]`
+  route), `.middleware({ loginUrl })` (route protection), and `.getSession()` (read
+  the session in a Server Component). Built **lazily** so a default build needs no
+  config — `createNeonAuth` throws if the cookie secret is missing/short.
+- **Client** (`@neondatabase/auth/next`): an argless `createAuthClient()` that talks
+  to this app's own same-origin `/api/auth` proxy — used for `signIn.magicLink()`
+  on the sign-in page and `signOut()`.
+- **Config** comes from `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` (≥32
+  chars), set after enabling Neon Auth on the Neon project. Which sign-in methods
+  are offered (magic link, email OTP, social) is configured in the Neon dashboard.
+- **Sessions** are signed cookies scoped so they are **never read on `/`**. The
+  proxy (`src/proxy.ts`) guards `/app/**` only; `/auth/sign-in` sits outside that
+  matcher so it is reachable without a session. Everything is flag-gated: with
+  workspace mode off, `/app`, `/auth`, and `/api/auth` all 404.
+
+Why Neon Auth over Auth.js: it removes the auth database schema we'd otherwise own
+and keeps auth + data in one Neon project. The trade-off is coupling to Neon (the
+SDK is currently beta) — acceptable because Neon is already the documented Postgres.
 
 ## Routing & rendering
 
@@ -131,7 +149,8 @@ Notes:
 | `/app/invoices/[id]` | server + client editor | required | edit, reusing `InvoiceForm` |
 | `/app/clients` | server | required | saved clients CRUD |
 | `/i/[shareToken]` | server, cached | none (token = capability) | read-only public invoice |
-| `/api/auth/*` | route handler | — | Auth.js |
+| `/auth/sign-in` | client | none | magic-link sign-in (outside the proxy matcher) |
+| `/api/auth/[...path]` | route handler | — | Neon Auth proxy |
 
 The editor on `/app/invoices/[id]` reuses `InvoiceForm` + `InvoiceDocument`
 verbatim; the only new glue is load-from-DB and save-to-DB (debounced autosave)
@@ -165,13 +184,15 @@ import it.
 
 ## Environment / infra
 
-- `DATABASE_URL` (Neon), `AUTH_SECRET`, `AUTH_URL`, `EMAIL_FROM`, `RESEND_API_KEY`
-  — all already documented as "planned" in `.env.example`; v0.2 flips them from
-  placeholder to read.
+- `DATABASE_URL` (Neon), `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET` (≥32
+  chars), and later `EMAIL_FROM`/`RESEND_API_KEY` for v0.3 invoice delivery — all
+  documented in `.env.example`. Neon Auth is enabled on the Neon project; it
+  provisions the `neon_auth` schema itself.
 - **Feature flag:** `WORKSPACE_ENABLED`. When unset (the default, and the
-  self-host default), `/app/**` and `/i/**` are not mounted and the app is byte-for-byte
-  today's instant-mode-only build. This keeps "instant mode with zero env vars"
-  literally true and lets us ship the plumbing incrementally behind a flag.
+  self-host default), `/app/**`, `/auth/**`, `/api/auth/**`, and `/i/**` are not
+  mounted and the app is byte-for-byte today's instant-mode-only build. This keeps
+  "instant mode with zero env vars" literally true and lets us ship the plumbing
+  incrementally behind a flag.
 - Drizzle migrations in `drizzle/`, run via a new `db:migrate` script. CI gains a
   step that checks migrations are in sync with the schema.
 
@@ -184,7 +205,8 @@ import it.
   revocable, and the share route is `noindex` + rate-limited.
 - **No secrets in the document JSON.** `logoDataUrl` can be large; cap its size on
   write (already a data URL, kept small in instant mode).
-- Magic-link tokens are single-use and short-TTL (Auth.js defaults).
+- Magic-link tokens and session lifetimes are managed by Neon Auth; sign-in
+  secrets never live in this repo (only `NEON_AUTH_BASE_URL` + a cookie secret).
 - The `/` promise is protected by an automated check (see below), not just
   discipline.
 
@@ -194,8 +216,9 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 
 1. **DB foundation** — Drizzle + Neon wiring, schema, migrations, `db:migrate`,
    CI migration check. No UI.
-2. **Auth** — Auth.js magic-link, adapter tables, `/app` shell gated by
-   middleware, sign-in/out. Bare authenticated page.
+2. **Auth** — Neon Auth (Managed Better Auth): server instance, `/api/auth`
+   proxy, `/app` shell gated by the proxy, magic-link sign-in + sign-out. Bare
+   authenticated page.
 3. **Invoice persistence** — list + editor on `/app`, autosave, reuse of
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
 4. **Status tracking** — status column + transitions + derived overdue in the list.

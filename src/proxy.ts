@@ -1,27 +1,21 @@
 /**
- * Proxy (formerly "middleware"): gate /app behind a session. Runs only on
- * /app/** (see matcher) — instant mode (`/`) never reaches this file, so it
- * stays cookie-free and local.
+ * Proxy (Next 16's renamed middleware): gate /app behind a Neon Auth session.
+ * Runs only on /app/** (see matcher) — instant mode (`/`) never reaches this
+ * file, so it stays cookie-free and local.
  *
- * Uses the edge-safe auth config (JWT, no DB). When workspace mode is off the
- * proxy steps aside and the /app route itself returns 404.
+ * When workspace mode is off the proxy steps aside and the /app route renders
+ * its own 404. The Neon Auth middleware is built lazily (per the getAuth()
+ * contract) so no config is required for a default build.
  */
 
-import NextAuth from "next-auth";
-import { NextResponse } from "next/server";
-import { authConfig } from "@/lib/auth.config";
+import { NextResponse, type NextRequest } from "next/server";
+import { getAuth, SIGN_IN_PATH } from "@/lib/auth";
 import { isWorkspaceEnabled } from "@/lib/workspace";
 
-const { auth } = NextAuth(authConfig);
-
-export default auth((req) => {
-  if (!isWorkspaceEnabled()) return; // let the page render its own 404
-  if (!req.auth) {
-    const signInUrl = new URL("/api/auth/signin", req.nextUrl.origin);
-    signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
-    return NextResponse.redirect(signInUrl);
-  }
-});
+export default function proxy(req: NextRequest) {
+  if (!isWorkspaceEnabled()) return NextResponse.next();
+  return getAuth().middleware({ loginUrl: SIGN_IN_PATH })(req);
+}
 
 export const config = {
   matcher: ["/app/:path*"],

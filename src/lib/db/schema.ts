@@ -5,6 +5,14 @@
  * `src/lib/db/index.ts`). Instant mode never imports it. See
  * `docs/workspace-mode-design.md` for the rationale behind storing the invoice
  * as a JSON document with only queried columns lifted out.
+ *
+ * Authentication is handled by **Neon Auth** (Managed Better Auth): user records
+ * live in the Neon-managed `neon_auth` schema, synced automatically — this app
+ * does not own a users table and does not migrate auth tables. `user_id` columns
+ * below hold the Neon Auth user id (a string). We deliberately do NOT add a hard
+ * cross-schema foreign key to the synced table: it is managed by Neon and may lag
+ * a request, so we scope by `user_id` in queries and join to `neon_auth.users_sync`
+ * only when we need the email/name for display.
  */
 
 import {
@@ -17,79 +25,15 @@ import {
   uuid,
   uniqueIndex,
   index,
-  primaryKey,
 } from "drizzle-orm/pg-core";
-import type { AdapterAccountType } from "next-auth/adapters";
 import type { Invoice, Party } from "@/lib/types";
 
-/**
- * Users. Column shape is intentionally compatible with the Auth.js Drizzle
- * adapter so PR #2 (auth) can add accounts/sessions/verification_tokens that
- * reference this table without reshaping it.
- */
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name"),
-  email: text("email").notNull().unique(),
-  emailVerified: timestamp("email_verified", { withTimezone: true }),
-  image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-/**
- * Auth.js adapter tables. Standard columns expected by @auth/drizzle-adapter.
- * With JWT sessions the `sessions` table stays empty and with magic-link only
- * the `accounts` table stays empty, but the adapter's types require all four to
- * be present, so we define them and wire them explicitly in `src/lib/auth.ts`.
- */
-export const accounts = pgTable(
-  "accounts",
-  {
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    type: text("type").$type<AdapterAccountType>().notNull(),
-    provider: text("provider").notNull(),
-    providerAccountId: text("provider_account_id").notNull(),
-    refresh_token: text("refresh_token"),
-    access_token: text("access_token"),
-    expires_at: integer("expires_at"),
-    token_type: text("token_type"),
-    scope: text("scope"),
-    id_token: text("id_token"),
-    session_state: text("session_state"),
-  },
-  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] })],
-);
-
-export const sessions = pgTable("sessions", {
-  sessionToken: text("session_token").primaryKey(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
-});
-
-export const verificationTokens = pgTable(
-  "verification_tokens",
-  {
-    identifier: text("identifier").notNull(),
-    token: text("token").notNull(),
-    expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.identifier, t.token] })],
-);
-
-/** Saved clients — reusable bill-to parties, owner-scoped. */
+/** Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id. */
 export const clients = pgTable(
   "clients",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     party: jsonb("party").notNull().$type<Party>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -114,9 +58,7 @@ export const invoices = pgTable(
   "invoices",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     number: text("number").notNull(),
     status: text("status").notNull().default("draft").$type<InvoiceStatus>(),
     issueDate: date("issue_date").notNull(),
@@ -138,6 +80,5 @@ export const invoices = pgTable(
   ],
 );
 
-export type UserRow = typeof users.$inferSelect;
 export type ClientRow = typeof clients.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;

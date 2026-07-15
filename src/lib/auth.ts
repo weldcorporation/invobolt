@@ -1,32 +1,31 @@
 /**
- * Full Auth.js setup for workspace mode (Node runtime): the edge-safe config
- * plus the Drizzle/Neon adapter that stores users and single-use magic-link
- * tokens.
+ * Neon Auth (Managed Better Auth) server instance for workspace mode.
  *
- * The config is passed as a lazy function so `getDb()` — which needs
- * `DATABASE_URL` — runs only when an auth request is actually handled, never at
- * import or during `next build`. With workspace mode off, nothing calls these.
+ * Built lazily: `createNeonAuth` validates `NEON_AUTH_COOKIE_SECRET` (and throws
+ * if it is missing or shorter than 32 chars), so we only construct it on the
+ * first real auth request — never at import or during `next build`. With
+ * workspace mode off, nothing calls `getAuth()`.
+ *
+ * Runs in both the Node runtime (route handler, server components) and the Edge
+ * runtime (the proxy) — the Neon Auth SDK supports both.
  */
 
-import NextAuth from "next-auth";
-import Resend from "next-auth/providers/resend";
-import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import { authConfig } from "./auth.config";
-import { getDb, schema } from "./db";
+import { createNeonAuth, type NeonAuth } from "@neondatabase/auth/next/server";
 
-export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
-  ...authConfig,
-  adapter: DrizzleAdapter(getDb(), {
-    usersTable: schema.users,
-    accountsTable: schema.accounts,
-    sessionsTable: schema.sessions,
-    verificationTokensTable: schema.verificationTokens,
-  }),
-  // The magic-link provider lives here (Node only) because it needs the adapter.
-  providers: [
-    Resend({
-      apiKey: process.env.RESEND_API_KEY,
-      from: process.env.EMAIL_FROM ?? "onboarding@resend.dev",
-    }),
-  ],
-}));
+let cached: NeonAuth | null = null;
+
+export function getAuth(): NeonAuth {
+  if (cached) return cached;
+  const baseUrl = process.env.NEON_AUTH_BASE_URL;
+  const secret = process.env.NEON_AUTH_COOKIE_SECRET;
+  if (!baseUrl || !secret) {
+    throw new Error(
+      "NEON_AUTH_BASE_URL and NEON_AUTH_COOKIE_SECRET must be set — workspace mode requires Neon Auth.",
+    );
+  }
+  cached = createNeonAuth({ baseUrl, cookies: { secret } });
+  return cached;
+}
+
+/** Where the proxy sends unauthenticated visitors. */
+export const SIGN_IN_PATH = "/auth/sign-in";

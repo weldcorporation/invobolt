@@ -73,8 +73,8 @@ extra dependencies.
 - Local-first: `localStorage` today (IndexedDB / installable PWA planned)
 - Hosted on **Vercel**; self-hostable
 
-Later tiers add **Neon** serverless Postgres (via Drizzle) and passwordless
-magic-link auth (Auth.js) for the optional workspace mode — see the roadmap.
+Later tiers add **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
+(Managed Better Auth) for the optional workspace mode — see the roadmap.
 
 ## Project structure
 
