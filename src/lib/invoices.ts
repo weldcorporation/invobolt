@@ -4,8 +4,8 @@
  * **Tenant isolation is this module's one job.** Every statement below is
  * scoped through `ownedBy()` / `ownedInvoice()`; no function accepts a row id
  * without also taking the `userId` it must belong to, so an id guessed from a
- * URL can never reach another account's row. `invoices.test.ts` fails the build
- * if a query here is written without one of those scopes.
+ * URL can never reach another account's row. `tenant-isolation.test.ts` fails
+ * the build if a query here is written without one of those scopes.
  */
 
 import "server-only";
@@ -13,17 +13,12 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import { deriveInvoiceColumns, nextInvoiceNumber } from "./invoice-row";
 import { emptyInvoice } from "./sample";
+import { isUniqueViolation } from "./pg-errors";
 import { sourcesFor, type InvoiceStatus } from "./status";
+import { isUuid } from "./uuid";
 import type { Invoice } from "./types";
 
 const { invoices } = schema;
-
-/** Postgres `unique_violation` — a duplicate (user_id, number). */
-const UNIQUE_VIOLATION = "23505";
-
-/** Ids come from URLs; a non-uuid would make Postgres throw, so filter early. */
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Every row this user owns. */
 export function ownedBy(userId: string) {
@@ -33,23 +28,6 @@ export function ownedBy(userId: string) {
 /** One row, but only if this user owns it. */
 export function ownedInvoice(userId: string, id: string) {
   return and(eq(invoices.id, id), eq(invoices.userId, userId));
-}
-
-/**
- * Whether an error is a duplicate-key rejection — in practice, two invoices
- * with the same number for one user.
- *
- * Walks the `cause` chain: Drizzle wraps driver failures in a `DrizzleQueryError`
- * whose own `code` is undefined, so checking only the thrown object silently
- * misses every violation and turns a fixable "that number is taken" into a 500.
- */
-export function isUniqueViolation(error: unknown): boolean {
-  for (let current = error, depth = 0; current && depth < 5; depth++) {
-    if (typeof current !== "object") break;
-    if ((current as { code?: unknown }).code === UNIQUE_VIOLATION) return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 /** A row as the list view needs it — deliberately without the full document. */
@@ -91,7 +69,7 @@ export async function getInvoice(
   userId: string,
   id: string,
 ): Promise<{ id: string; status: InvoiceStatus; document: Invoice } | null> {
-  if (!UUID.test(id)) return null;
+  if (!isUuid(id)) return null;
 
   const rows = await getDb()
     .select({
@@ -176,7 +154,7 @@ export async function saveInvoice(
   id: string,
   document: Invoice,
 ): Promise<boolean> {
-  if (!UUID.test(id)) return false;
+  if (!isUuid(id)) return false;
 
   const updated = await getDb()
     .update(invoices)
@@ -209,7 +187,7 @@ export async function setInvoiceStatus(
   id: string,
   next: InvoiceStatus,
 ): Promise<StatusChange> {
-  if (!UUID.test(id)) return "not-found";
+  if (!isUuid(id)) return "not-found";
 
   const moved = await getDb()
     .update(invoices)
@@ -228,7 +206,7 @@ export async function deleteInvoice(
   userId: string,
   id: string,
 ): Promise<boolean> {
-  if (!UUID.test(id)) return false;
+  if (!isUuid(id)) return false;
 
   const deleted = await getDb()
     .delete(invoices)

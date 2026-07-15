@@ -78,9 +78,13 @@ only for display.
 clients                       -- the "saved clients" feature
   id            uuid  pk
   user_id       text  not null        -- Neon Auth user id (no hard cross-schema FK)
+  name          text  not null        -- lifted from party: what we sort on
+  name_key      text  not null        -- lower(name): what we dedupe on
   party         jsonb not null        -- a Party object
   created_at    timestamptz not null default now()
   updated_at    timestamptz not null default now()
+
+  unique (user_id, name_key)
 
 invoices
   id            uuid  pk
@@ -105,6 +109,13 @@ invoices
 ```
 
 Notes:
+- `clients.name`/`name_key` were **added during step 5** — this section
+  originally lifted nothing out of `party`. "Save this client" has to be an
+  upsert, which needs a key: without a unique index, saving Acme twice silently
+  accrues duplicate Acmes, and deduping in app code is a read-then-write race.
+  Lifting the field we index on is the same principle the invoice columns
+  follow. `name_key` is a stored column rather than a `lower(name)` index
+  expression only because a plain column can be an `ON CONFLICT` target.
 - `total_cents` is a cache for list/sort; it's recomputed from `document` via the
   existing `computeTotals` on every write, never hand-edited.
 - `overdue` is derived, not stored — matches how the UI already thinks about it.
@@ -183,6 +194,23 @@ so client components get `InvoiceStatus` without pulling in Drizzle):
 Selecting one fills `invoice.client`; a "save this client" action upserts. Purely
 additive to the existing form.
 
+As built:
+
+- "Purely additive" is enforced by shape: `InvoiceForm` gained one optional
+  `clientPicker?: ReactNode` slot, not a `clients` prop. Instant mode has no
+  database and passes nothing, so `/` renders exactly the form it did before —
+  the workspace concept is injected, never imported into the shared component.
+- Two write paths, deliberately: **upsert by name** (`saveClientAction`) is
+  right when saving a bill-to that may or may not already be a client, while
+  **update by id** (`updateClientAction`) is what the clients page edits with —
+  keying an edit by name would turn renaming Acme to Acme Ltd into a second row
+  and orphan the first.
+- Picking copies the saved party into the invoice. The invoice keeps its own
+  snapshot, so editing a saved client never rewrites history on invoices already
+  sent.
+- `/app/clients` reuses `PartyFields` from the invoice form verbatim: a saved
+  client is the same `Party` as a bill-to, so it gets the same editing surface.
+
 **Shareable invoice page.** "Share" mints a random `share_token` and exposes
 `/i/[token]` — a server-rendered, read-only `InvoiceDocument` with no app chrome
 and the same print stylesheet, so the recipient can view and print-to-PDF exactly
@@ -238,7 +266,7 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 3. ✅ **Invoice persistence** — list + editor on `/app`, autosave, reuse of
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
 4. ✅ **Status tracking** — status column + transitions + derived overdue in the list.
-5. **Saved clients** — `clients` CRUD + form picker.
+5. ✅ **Saved clients** — `clients` CRUD + form picker.
 6. **Shareable page** — `share_token` + `/i/[token]` read-only route.
 7. **Profile import** — one-time localStorage → account seeding.
 

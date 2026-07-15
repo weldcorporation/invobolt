@@ -15,10 +15,17 @@ import { validateInvoice } from "@/lib/invoice-row";
 import {
   createInvoice,
   deleteInvoice,
-  isUniqueViolation,
   saveInvoice,
   setInvoiceStatus,
 } from "@/lib/invoices";
+import {
+  deleteClient,
+  updateClient,
+  upsertClient,
+  type SavedClient,
+} from "@/lib/clients";
+import { isParty, validateClientParty } from "@/lib/party";
+import { isUniqueViolation } from "@/lib/pg-errors";
 import { isInvoiceStatus } from "@/lib/status";
 import type { Invoice } from "@/lib/types";
 
@@ -100,4 +107,76 @@ export async function deleteInvoiceAction(id: string): Promise<never> {
 
   revalidatePath("/app");
   redirect("/app");
+}
+
+export type SaveClientResult =
+  | { ok: true; client: SavedClient }
+  | { ok: false; error: string };
+
+/**
+ * Save a bill-to party as a reusable client, replacing any of the user's
+ * clients with that name.
+ *
+ * `party` is narrowed and re-built at runtime rather than trusted: the `Party`
+ * annotation is erased in the compiled output, and `normalizeParty` (inside
+ * `upsertClient`) drops any key that isn't a Party's, so a caller can't post a
+ * fatter object and have it land in the jsonb column.
+ */
+export async function saveClientAction(
+  party: unknown,
+): Promise<SaveClientResult> {
+  const userId = await requireUserId();
+
+  if (!isParty(party)) return { ok: false, error: "That isn't a client." };
+
+  const problems = validateClientParty(party);
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  const client = await upsertClient(userId, party);
+
+  revalidatePath("/app/clients");
+  return { ok: true, client };
+}
+
+/**
+ * Edit a specific saved client. Unlike `saveClientAction` this addresses the
+ * row by id, so renaming a client edits it rather than creating a second one.
+ */
+export async function updateClientAction(
+  id: string,
+  party: unknown,
+): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  if (!isParty(party)) return { ok: false, error: "That isn't a client." };
+
+  const problems = validateClientParty(party);
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  try {
+    const updated = await updateClient(userId, id, party);
+    if (!updated) return { ok: false, error: "That client no longer exists." };
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return {
+        ok: false,
+        error: `You already have a client named ${party.name.trim()}.`,
+      };
+    }
+    throw error;
+  }
+
+  revalidatePath("/app/clients");
+  return { ok: true };
+}
+
+/** Delete a saved client. Invoices already written keep their own copy. */
+export async function deleteClientAction(id: string): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  const deleted = await deleteClient(userId, id);
+  if (!deleted) return { ok: false, error: "That client no longer exists." };
+
+  revalidatePath("/app/clients");
+  return { ok: true };
 }

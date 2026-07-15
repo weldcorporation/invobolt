@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireUserId } from "@/lib/session";
 import { getInvoice } from "@/lib/invoices";
+import { listClients } from "@/lib/clients";
 import { todayIso } from "@/lib/status";
 import { InvoiceEditor } from "./InvoiceEditor";
 
@@ -19,7 +20,10 @@ export default async function EditInvoicePage({
   const { id } = await params;
   const userId = await requireUserId();
 
-  const invoice = await getInvoice(userId, id);
+  const [invoice, savedClients] = await Promise.all([
+    getInvoice(userId, id),
+    listClients(userId),
+  ]);
   if (!invoice) notFound();
 
   return (
@@ -27,6 +31,7 @@ export default async function EditInvoicePage({
       id={invoice.id}
       initialStatus={invoice.status}
       initialDocument={invoice.document}
+      savedClients={savedClients}
       // Resolved on the server and passed down so the derived `overdue` badge
       // renders identically on both sides of hydration — reading the clock in
       // the client component would risk a mismatch.

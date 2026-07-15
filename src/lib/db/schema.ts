@@ -29,12 +29,26 @@ import {
 import type { Invoice, Party } from "@/lib/types";
 import type { InvoiceStatus } from "@/lib/status";
 
-/** Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id. */
+/**
+ * Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id.
+ *
+ * Two fields are lifted out of the `party` document, for the same reason the
+ * invoice columns are — they're what we sort and index on:
+ *
+ * - `name` is the display name, spelled however the user typed it.
+ * - `nameKey` is `name` lowercased: the key the unique index dedupes on, so
+ *   "Acme Corp" and "acme corp" are one client. It's a stored column rather
+ *   than a `lower(name)` index expression because a plain column can be an
+ *   `ON CONFLICT` target — which is what makes "save this client" a single
+ *   atomic upsert instead of a read-then-write race that duplicates Acme.
+ */
 export const clients = pgTable(
   "clients",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
     party: jsonb("party").notNull().$type<Party>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -43,7 +57,10 @@ export const clients = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("clients_user_id_idx").on(t.userId)],
+  (t) => [
+    index("clients_user_id_idx").on(t.userId),
+    uniqueIndex("clients_user_name_idx").on(t.userId, t.nameKey),
+  ],
 );
 
 /**

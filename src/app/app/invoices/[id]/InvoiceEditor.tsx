@@ -12,13 +12,15 @@ import {
   transitionLabel,
   type InvoiceStatus,
 } from "@/lib/status";
-import type { Invoice, Locale } from "@/lib/types";
+import type { SavedClient } from "@/lib/clients";
+import type { Invoice, Locale, Party } from "@/lib/types";
 import {
   deleteInvoiceAction,
   saveInvoiceAction,
   setInvoiceStatusAction,
 } from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
+import { ClientPicker } from "./ClientPicker";
 
 /**
  * Debounce for autosave. Long enough that typing a word is one write, short
@@ -39,6 +41,7 @@ interface Props {
   initialDocument: Invoice;
   /** Today, per the server — see the page component. */
   today: string;
+  savedClients: SavedClient[];
 }
 
 /**
@@ -54,6 +57,7 @@ export function InvoiceEditor({
   initialStatus,
   initialDocument,
   today,
+  savedClients,
 }: Props) {
   const [invoice, setInvoice] = useState<Invoice>(initialDocument);
   const [status, setStatus] = useState<InvoiceStatus>(initialStatus);
@@ -230,7 +234,20 @@ export function InvoiceEditor({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
         <div className="no-print">
-          <InvoiceForm invoice={invoice} onChange={onChange} uiLocale={uiLocale} />
+          <InvoiceForm
+            invoice={invoice}
+            onChange={onChange}
+            uiLocale={uiLocale}
+            clientPicker={
+              <ClientPicker
+                clients={savedClients}
+                party={invoice.client}
+                // Routed through the same onChange as any typed edit, so picking
+                // a client autosaves exactly like filling the fields by hand.
+                onPick={(client: Party) => onChange({ ...invoice, client })}
+              />
+            }
+          />
         </div>
 
         <div className="print-root">
