@@ -21,6 +21,7 @@ import {
 } from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
 import { ClientPicker } from "./ClientPicker";
+import { ShareControls } from "./ShareControls";
 
 /**
  * Debounce for autosave. Long enough that typing a word is one write, short
@@ -42,6 +43,7 @@ interface Props {
   /** Today, per the server — see the page component. */
   today: string;
   savedClients: SavedClient[];
+  initialShareToken: string | null;
 }
 
 /**
@@ -58,6 +60,7 @@ export function InvoiceEditor({
   initialDocument,
   today,
   savedClients,
+  initialShareToken,
 }: Props) {
   const [invoice, setInvoice] = useState<Invoice>(initialDocument);
   const [status, setStatus] = useState<InvoiceStatus>(initialStatus);
@@ -231,6 +234,8 @@ export function InvoiceEditor({
           ))}
         </div>
       </div>
+
+      <ShareControls id={id} initialToken={initialShareToken} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
         <div className="no-print">

@@ -17,6 +17,8 @@ import {
   deleteInvoice,
   saveInvoice,
   setInvoiceStatus,
+  shareInvoice,
+  unshareInvoice,
 } from "@/lib/invoices";
 import {
   deleteClient,
@@ -107,6 +109,35 @@ export async function deleteInvoiceAction(id: string): Promise<never> {
 
   revalidatePath("/app");
   redirect("/app");
+}
+
+export type ShareResult =
+  | { ok: true; token: string }
+  | { ok: false; error: string };
+
+/**
+ * Mint (or re-return) this invoice's share link. Idempotent — see
+ * `shareInvoice`; pressing Share twice must not break a link already sent.
+ */
+export async function shareInvoiceAction(id: string): Promise<ShareResult> {
+  const userId = await requireUserId();
+
+  const token = await shareInvoice(userId, id);
+  if (!token) return { ok: false, error: "This invoice no longer exists." };
+
+  revalidatePath(`/app/invoices/${id}`);
+  return { ok: true, token };
+}
+
+/** Revoke the share link. The URL stops resolving for everyone holding it. */
+export async function unshareInvoiceAction(id: string): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  const revoked = await unshareInvoice(userId, id);
+  if (!revoked) return { ok: false, error: "This invoice no longer exists." };
+
+  revalidatePath(`/app/invoices/${id}`);
+  return { ok: true };
 }
 
 export type SaveClientResult =

@@ -9,11 +9,12 @@
  */
 
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import { deriveInvoiceColumns, nextInvoiceNumber } from "./invoice-row";
 import { emptyInvoice } from "./sample";
 import { isUniqueViolation } from "./pg-errors";
+import { isShareToken, mintShareToken } from "./share-token";
 import { sourcesFor, type InvoiceStatus } from "./status";
 import { isUuid } from "./uuid";
 import type { Invoice } from "./types";
@@ -28,6 +29,20 @@ export function ownedBy(userId: string) {
 /** One row, but only if this user owns it. */
 export function ownedInvoice(userId: string, id: string) {
   return and(eq(invoices.id, id), eq(invoices.userId, userId));
+}
+
+/**
+ * One row by its share token — **the only scope in this module that is not an
+ * owner check**, and deliberately so: `/i/[token]` has no session, and the
+ * token itself is the capability (192 random bits, revocable by nulling it).
+ *
+ * Safe only because `shareToken` is NULL until the owner shares. `eq` never
+ * matches NULL in SQL, so an unshared invoice is unreachable here even if a
+ * caller passes an empty string. `tenant-isolation.test.ts` names this as an
+ * explicit exception so it can't quietly become the pattern.
+ */
+export function byShareToken(token: string) {
+  return eq(invoices.shareToken, token);
 }
 
 /** A row as the list view needs it — deliberately without the full document. */
@@ -68,7 +83,12 @@ export async function listInvoices(userId: string): Promise<InvoiceListItem[]> {
 export async function getInvoice(
   userId: string,
   id: string,
-): Promise<{ id: string; status: InvoiceStatus; document: Invoice } | null> {
+): Promise<{
+  id: string;
+  status: InvoiceStatus;
+  document: Invoice;
+  shareToken: string | null;
+} | null> {
   if (!isUuid(id)) return null;
 
   const rows = await getDb()
@@ -76,9 +96,31 @@ export async function getInvoice(
       id: invoices.id,
       status: invoices.status,
       document: invoices.document,
+      shareToken: invoices.shareToken,
     })
     .from(invoices)
     .where(ownedInvoice(userId, id))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * The invoice behind a share link, for the public `/i/[token]` route.
+ *
+ * Returns only what the recipient's page renders — never the owner, the row id,
+ * or anything else that would let a link-holder pivot to the rest of the
+ * account.
+ */
+export async function getSharedInvoice(
+  token: string,
+): Promise<{ status: InvoiceStatus; document: Invoice } | null> {
+  if (!isShareToken(token)) return null;
+
+  const rows = await getDb()
+    .select({ status: invoices.status, document: invoices.document })
+    .from(invoices)
+    .where(byShareToken(token))
     .limit(1);
 
   return rows[0] ?? null;
@@ -199,6 +241,60 @@ export async function setInvoiceStatus(
 
   if (moved.length > 0) return "ok";
   return (await getInvoice(userId, id)) ? "illegal" : "not-found";
+}
+
+/**
+ * Mint a share link for an invoice the user owns, or return the one it already
+ * has. Null if the invoice isn't theirs.
+ *
+ * Idempotent on purpose: pressing Share twice must not rotate the token, or the
+ * link already emailed to the client would quietly die. The `IS NULL` guard
+ * lives in the WHERE clause so that's atomic — two tabs racing to share cannot
+ * each mint a token and have the second overwrite the first, leaving the first
+ * caller holding a URL that 404s.
+ */
+export async function shareInvoice(
+  userId: string,
+  id: string,
+): Promise<string | null> {
+  if (!isUuid(id)) return null;
+
+  const minted = await getDb()
+    .update(invoices)
+    .set({ shareToken: mintShareToken(), updatedAt: new Date() })
+    .where(and(ownedInvoice(userId, id), isNull(invoices.shareToken)))
+    .returning({ shareToken: invoices.shareToken });
+
+  if (minted.length > 0) return minted[0].shareToken;
+
+  // No row matched: either it's already shared, or it isn't ours. Only the
+  // owner-scoped read can tell those apart.
+  const existing = await getDb()
+    .select({ shareToken: invoices.shareToken })
+    .from(invoices)
+    .where(ownedInvoice(userId, id))
+    .limit(1);
+
+  return existing[0]?.shareToken ?? null;
+}
+
+/**
+ * Revoke a share link. Nulling the token is what makes the capability
+ * revocable — the URL stops resolving immediately, for everyone holding it.
+ */
+export async function unshareInvoice(
+  userId: string,
+  id: string,
+): Promise<boolean> {
+  if (!isUuid(id)) return false;
+
+  const revoked = await getDb()
+    .update(invoices)
+    .set({ shareToken: null, updatedAt: new Date() })
+    .where(ownedInvoice(userId, id))
+    .returning({ id: invoices.id });
+
+  return revoked.length > 0;
 }
 
 /** Delete an invoice the user owns. Returns false if there was nothing to delete. */

@@ -159,7 +159,7 @@ SDK is currently beta) — acceptable because Neon is already the documented Pos
 | `/app` | server | required | invoice list + status |
 | `/app/invoices/[id]` | server + client editor | required | edit, reusing `InvoiceForm` |
 | `/app/clients` | server | required | saved clients CRUD |
-| `/i/[shareToken]` | server, cached | none (token = capability) | read-only public invoice |
+| `/i/[shareToken]` | server, never cached | none (token = capability) | read-only public invoice — see Feature notes for why not cached |
 | `/auth/sign-in` | client | none | magic-link sign-in (outside the proxy matcher) |
 | `/api/auth/[...path]` | route handler | — | Neon Auth proxy |
 
@@ -217,6 +217,38 @@ and the same print stylesheet, so the recipient can view and print-to-PDF exactl
 what the sender sees. The token is an unguessable capability (revocable by nulling
 it); no recipient account required. `noindex` on the page.
 
+As built:
+
+- **Not cached** — this section originally said "server, cached", and that is
+  wrong for a capability URL. A cached HTML response keeps serving an invoice
+  after the sender revokes the link, which breaks the one property that makes
+  handing out a URL safe. The route is `force-dynamic`; the cost is one indexed
+  lookup on a unique column per view. Revocation is verified to take effect on
+  the next request.
+- Tokens are 192 bits from `crypto.getRandomValues`, base64url. Nothing about
+  them is derived from the row — an id or a hash of the invoice number would be
+  predictable from information the recipient already has.
+- Sharing is **idempotent**: pressing Share twice returns the existing token
+  rather than rotating it, or the link already emailed to the client would
+  quietly die. The `IS NULL` guard sits in the WHERE clause so concurrent
+  shares can't each mint a token and leave one caller holding a dead URL.
+- Unknown, malformed, and revoked tokens all 404 identically — distinguishing
+  them would confirm which tokens once existed.
+- `getSharedInvoice` selects only `status` and `document`: never the owner or
+  the row id, so a link-holder has nothing to pivot on. It is the single
+  deliberate exception to owner-scoping, and `tenant-isolation.test.ts` names it
+  explicitly so it can't quietly become the pattern.
+
+**Not implemented: rate limiting.** The Security section below asks for it and
+this does not have it. A per-instance in-memory limiter is close to useless on
+serverless, where requests spread across instances, and doing it properly needs
+a shared store (Vercel KV / Upstash) — new infrastructure and a new env var,
+which felt like more than this step should smuggle in. The exposure is small:
+guessing a 192-bit token is infeasible, so a limiter here buys protection
+against volumetric abuse rather than enumeration, and that is better handled at
+the edge/CDN. Worth revisiting if `/i/**` ever gets an endpoint that costs more
+than one indexed lookup.
+
 ## Migration from instant mode
 
 The localStorage `BusinessProfile` (schema `invobolt.profile.v1`, see
@@ -245,8 +277,9 @@ import it.
 - **Tenant isolation:** every DB access is scoped by the session `user_id`; no
   endpoint accepts a raw `id` without the ownership filter. Add a test-level
   helper so this can't regress silently.
-- **Share tokens** are high-entropy random (≥128 bits), capability-style,
-  revocable, and the share route is `noindex` + rate-limited.
+- **Share tokens** are high-entropy random (≥128 bits — 192 as built),
+  capability-style, revocable, and the share route is `noindex`. Rate limiting
+  is **not** implemented; see the reasoning under Feature notes.
 - **No secrets in the document JSON.** `logoDataUrl` can be large; cap its size on
   write (already a data URL, kept small in instant mode).
 - Magic-link tokens and session lifetimes are managed by Neon Auth; sign-in
@@ -267,7 +300,7 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
 4. ✅ **Status tracking** — status column + transitions + derived overdue in the list.
 5. ✅ **Saved clients** — `clients` CRUD + form picker.
-6. **Shareable page** — `share_token` + `/i/[token]` read-only route.
+6. ✅ **Shareable page** — `share_token` + `/i/[token]` read-only route.
 7. **Profile import** — one-time localStorage → account seeding.
 
 ## Resolved decisions

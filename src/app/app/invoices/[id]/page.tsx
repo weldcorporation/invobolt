@@ -32,6 +32,7 @@ export default async function EditInvoicePage({
       initialStatus={invoice.status}
       initialDocument={invoice.document}
       savedClients={savedClients}
+      initialShareToken={invoice.shareToken}
       // Resolved on the server and passed down so the derived `overdue` badge
       // renders identically on both sides of hydration — reading the clock in
       // the client component would risk a mismatch.
