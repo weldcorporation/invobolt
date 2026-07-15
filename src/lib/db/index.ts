@@ -12,11 +12,8 @@ import { neon } from "@neondatabase/serverless";
 import * as schema from "./schema";
 
 export { schema };
-
-/** True when workspace mode is switched on. Off (the default) = instant only. */
-export function isWorkspaceEnabled(): boolean {
-  return process.env.WORKSPACE_ENABLED === "true";
-}
+// Re-exported for server callers; the edge-safe source lives in lib/workspace.
+export { isWorkspaceEnabled } from "@/lib/workspace";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 
