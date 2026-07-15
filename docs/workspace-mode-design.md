@@ -214,12 +214,12 @@ import it.
 
 Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 
-1. **DB foundation** — Drizzle + Neon wiring, schema, migrations, `db:migrate`,
+1. ✅ **DB foundation** — Drizzle + Neon wiring, schema, migrations, `db:migrate`,
    CI migration check. No UI.
-2. **Auth** — Neon Auth (Managed Better Auth): server instance, `/api/auth`
+2. ✅ **Auth** — Neon Auth (Managed Better Auth): server instance, `/api/auth`
    proxy, `/app` shell gated by the proxy, magic-link sign-in + sign-out. Bare
    authenticated page.
-3. **Invoice persistence** — list + editor on `/app`, autosave, reuse of
+3. ✅ **Invoice persistence** — list + editor on `/app`, autosave, reuse of
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
 4. **Status tracking** — status column + transitions + derived overdue in the list.
 5. **Saved clients** — `clients` CRUD + form picker.
