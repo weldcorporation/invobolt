@@ -203,15 +203,23 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 6. **Shareable page** — `share_token` + `/i/[token]` read-only route.
 7. **Profile import** — one-time localStorage → account seeding.
 
-## Open questions (need a decision before build)
+## Resolved decisions
 
-1. **Route prefix** for workspace mode: `/app` vs `/w` vs a subdomain
-   `app.invobolt.…`? A subdomain gives the cleanest cookie isolation from `/`.
-2. **Invoice numbering:** auto-increment per user, or keep it user-typed (current
-   behaviour) with a uniqueness check? Auto is friendlier but opinionated.
-3. **Autosave vs explicit save** in the workspace editor.
-4. **Neon vs. generic Postgres** as the documented default for self-hosters — the
-   schema is standard Postgres, so Neon is just the hosted recommendation.
+1. **Route prefix → `/app` (path-based), single origin.** A subdomain isolates
+   cookies marginally better but complicates self-hosting and deployment config; a
+   single origin with a middleware matcher that runs auth *only* under `/app`
+   keeps self-host trivial and never touches `/`. The session cookie is httpOnly,
+   `SameSite=Lax`, and path-scoped so it is not attached on `/`.
+2. **Invoice numbering → auto-increment per user, editable.** On new-invoice we
+   pre-fill the next sequential, year-scoped number (matching the sample's
+   `2026-001` shape); the field stays editable and per-user uniqueness
+   (`unique (user_id, number)`) is enforced on save.
+3. **Autosave, debounced, with a Saving/Saved indicator.** Opening the editor
+   creates (or loads) a persisted `draft` row; edits autosave on a short debounce.
+   No explicit save button in the workspace editor.
+4. **Neon** is the documented default (hosted serverless Postgres via the Neon
+   driver). The schema is standard Postgres, so self-hosters can point
+   `DATABASE_URL` at any Postgres instance.
 
 ## What this preserves
 
