@@ -34,5 +34,17 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: DB migrations in sync with schema
+        # `db:generate` writes nothing when the committed migrations already
+        # match src/lib/db/schema.ts, so a dirty tree means someone changed the
+        # schema without regenerating. Runs offline — no database needed.
+        run: |
+          npm run db:generate
+          if [ -n "$(git status --porcelain drizzle/)" ]; then
+            echo "::error::drizzle/ is out of date — run 'npm run db:generate' and commit the result."
+            git status --porcelain drizzle/
+            exit 1
+          fi
+
       - name: Build
         run: npm run build

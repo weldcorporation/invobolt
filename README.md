@@ -73,8 +73,8 @@ extra dependencies.
 - Local-first: `localStorage` today (IndexedDB / installable PWA planned)
 - Hosted on **Vercel**; self-hostable
 
-Later tiers add **Neon** serverless Postgres (via Drizzle) and passwordless
-magic-link auth (Auth.js) for the optional workspace mode — see the roadmap.
+Later tiers add **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
+(Managed Better Auth) for the optional workspace mode — see the roadmap.
 
 ## Project structure
 
@@ -104,7 +104,7 @@ how to add a template, a locale, or a currency.
 ## Roadmap
 
 - **v0.1** *(this repo)* — instant-mode generator, live preview, VAT + multi-currency, PDF export, 3 templates, business-profile memory.
-- **v0.2** — workspace mode (magic link + Neon), status tracking, saved clients, shareable invoice page.
+- **v0.2** — workspace mode (magic link + Neon), status tracking, saved clients, shareable invoice page. → [design proposal](./docs/workspace-mode-design.md)
 - **v0.3** — Stripe import (customers/products) + "Pay now" links, recurring invoices, email delivery.
 - **v1.0** — polished templates, more locales, self-host Docker image.
 

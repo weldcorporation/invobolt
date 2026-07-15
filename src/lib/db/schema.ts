@@ -1,0 +1,84 @@
+/**
+ * Drizzle schema for workspace mode (v0.2).
+ *
+ * This is dormant until workspace mode is enabled (see `WORKSPACE_ENABLED` and
+ * `src/lib/db/index.ts`). Instant mode never imports it. See
+ * `docs/workspace-mode-design.md` for the rationale behind storing the invoice
+ * as a JSON document with only queried columns lifted out.
+ *
+ * Authentication is handled by **Neon Auth** (Managed Better Auth): user records
+ * live in the Neon-managed `neon_auth` schema, synced automatically — this app
+ * does not own a users table and does not migrate auth tables. `user_id` columns
+ * below hold the Neon Auth user id (a string). We deliberately do NOT add a hard
+ * cross-schema foreign key to the synced table: it is managed by Neon and may lag
+ * a request, so we scope by `user_id` in queries and join to `neon_auth.users_sync`
+ * only when we need the email/name for display.
+ */
+
+import {
+  pgTable,
+  text,
+  timestamp,
+  date,
+  integer,
+  jsonb,
+  uuid,
+  uniqueIndex,
+  index,
+} from "drizzle-orm/pg-core";
+import type { Invoice, Party } from "@/lib/types";
+
+/** Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id. */
+export const clients = pgTable(
+  "clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    party: jsonb("party").notNull().$type<Party>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("clients_user_id_idx").on(t.userId)],
+);
+
+/** Invoice status. `overdue` is derived (sent + past due), never stored. */
+export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
+
+/**
+ * Invoices. The full `Invoice` object lives in `document`; the lifted columns
+ * exist only for listing, sorting, filtering, and uniqueness. `totalCents` is a
+ * cache recomputed from `document` via `computeTotals` on every write — the
+ * document + calc.ts remain the source of truth.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    number: text("number").notNull(),
+    status: text("status").notNull().default("draft").$type<InvoiceStatus>(),
+    issueDate: date("issue_date").notNull(),
+    dueDate: date("due_date"),
+    currency: text("currency").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    document: jsonb("document").notNull().$type<Invoice>(),
+    shareToken: text("share_token").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invoices_user_number_idx").on(t.userId, t.number),
+    index("invoices_user_status_idx").on(t.userId, t.status),
+  ],
+);
+
+export type ClientRow = typeof clients.$inferSelect;
+export type InvoiceRow = typeof invoices.$inferSelect;
