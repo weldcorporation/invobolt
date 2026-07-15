@@ -55,6 +55,8 @@ npm run dev
 | `npm run start` | Serve the production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
+| `npm test` | Run the unit tests (Vitest) |
+| `npm run test:watch` | Vitest in watch mode |
 
 ## How PDF export works
 
