@@ -17,6 +17,7 @@ import type { Invoice, Locale, Party } from "@/lib/types";
 import {
   deleteInvoiceAction,
   saveInvoiceAction,
+  saveProfileFromInvoiceAction,
   setInvoiceStatusAction,
 } from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
@@ -142,6 +143,25 @@ export function InvoiceEditor({
     }
   };
 
+  const [defaultsSaved, setDefaultsSaved] = useState(false);
+
+  const onSaveDefaults = async () => {
+    try {
+      const result = await saveProfileFromInvoiceAction(invoice);
+      if (!result.ok) {
+        setSaveState({ kind: "error", message: result.error });
+        return;
+      }
+      setDefaultsSaved(true);
+      window.setTimeout(() => setDefaultsSaved(false), 2000);
+    } catch {
+      setSaveState({
+        kind: "error",
+        message: "Couldn't reach the server — your defaults are unchanged.",
+      });
+    }
+  };
+
   const onDelete = async () => {
     if (!window.confirm("Delete this invoice? This cannot be undone.")) return;
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -186,6 +206,14 @@ export function InvoiceEditor({
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => void onSaveDefaults()}
+            title="Use this invoice's business details, template and currency for new invoices"
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+          >
+            {defaultsSaved ? "✓ Saved" : "Save as default"}
+          </button>
           <button
             type="button"
             onClick={onDelete}

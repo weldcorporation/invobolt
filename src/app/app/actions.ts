@@ -28,6 +28,12 @@ import {
 } from "@/lib/clients";
 import { isParty, validateClientParty } from "@/lib/party";
 import { isUniqueViolation } from "@/lib/pg-errors";
+import { upsertProfile } from "@/lib/profiles";
+import {
+  isBusinessProfile,
+  profileFromInvoice,
+  validateBusinessProfile,
+} from "@/lib/profile";
 import { isInvoiceStatus } from "@/lib/status";
 import type { Invoice } from "@/lib/types";
 
@@ -109,6 +115,63 @@ export async function deleteInvoiceAction(id: string): Promise<never> {
 
   revalidatePath("/app");
   redirect("/app");
+}
+
+/**
+ * Store a `BusinessProfile` the browser sent us as the account's defaults.
+ *
+ * This is the one action that carries data the user never typed into this
+ * surface — it comes off localStorage — so it only ever runs from an explicit
+ * click, and the payload is narrowed (`isBusinessProfile`) and rebuilt
+ * (`normalizeBusinessProfile`, inside `upsertProfile`) rather than trusted.
+ * Anything on the origin can write localStorage; none of it gets to widen a
+ * jsonb column.
+ */
+export async function importProfileAction(profile: unknown): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  if (!isBusinessProfile(profile)) {
+    return { ok: false, error: "That doesn't look like a saved profile." };
+  }
+
+  const problems = validateBusinessProfile(profile);
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  await upsertProfile(userId, profile);
+
+  revalidatePath("/app");
+  return { ok: true };
+}
+
+/**
+ * Save the invoice you're editing as your defaults, so the next one starts
+ * there. The workspace counterpart of instant mode's "Save profile", and the
+ * only way an imported profile can ever be corrected.
+ */
+export async function saveProfileFromInvoiceAction(
+  document: unknown,
+): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  // The invoice is already this account's data, but it arrives over the wire
+  // like anything else — derive the profile, then hold it to the same bar.
+  const profile = isInvoiceLike(document)
+    ? profileFromInvoice(document)
+    : null;
+  if (!profile || !isBusinessProfile(profile)) {
+    return { ok: false, error: "Couldn't read this invoice's details." };
+  }
+
+  const problems = validateBusinessProfile(profile);
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  await upsertProfile(userId, profile);
+  return { ok: true };
+}
+
+/** Enough of an `Invoice` for `profileFromInvoice` to read; the result is then narrowed properly. */
+function isInvoiceLike(value: unknown): value is Invoice {
+  return typeof value === "object" && value !== null && "seller" in value;
 }
 
 export type ShareResult =

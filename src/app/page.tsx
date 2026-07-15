@@ -4,12 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Invoice, Locale } from "@/lib/types";
 import { sampleInvoice } from "@/lib/sample";
 import { ui } from "@/lib/i18n";
-import {
-  applyProfile,
-  clearProfile,
-  loadProfile,
-  saveProfile,
-} from "@/lib/storage";
+import { applyProfile } from "@/lib/profile";
+import { clearProfile, loadProfile, saveProfile } from "@/lib/storage";
 import { InvoiceForm } from "@/components/InvoiceForm";
 import { InvoiceDocument } from "@/components/InvoiceDocument";
 

@@ -2,10 +2,12 @@ import Link from "next/link";
 import { getAuth } from "@/lib/auth";
 import { requireUserId } from "@/lib/session";
 import { listInvoices } from "@/lib/invoices";
+import { getProfile } from "@/lib/profiles";
 import { formatMoney } from "@/lib/currency";
 import { formatDate } from "@/lib/format";
 import { groupByDisplayStatus, todayIso } from "@/lib/status";
 import { createInvoiceAction } from "./actions";
+import { ProfileImportBanner } from "./ProfileImportBanner";
 import { SignOutButton } from "./SignOutButton";
 import { StatusBadge } from "./StatusBadge";
 
@@ -18,8 +20,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function WorkspaceHome() {
   const userId = await requireUserId();
-  const [invoices, { data: session }] = await Promise.all([
+  const [invoices, profile, { data: session }] = await Promise.all([
     listInvoices(userId),
+    getProfile(userId),
     getAuth().getSession(),
   ]);
   const email = session?.user?.email ?? "your account";
@@ -46,6 +49,10 @@ export default async function WorkspaceHome() {
           </form>
         </div>
       </div>
+
+      {/* Only the *existence* of a profile crosses to the client here — never
+          its contents, and never the local one until the user says so. */}
+      <ProfileImportBanner hasServerProfile={profile !== null} />
 
       {invoices.length === 0 ? (
         <div className="rounded-xl border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700">

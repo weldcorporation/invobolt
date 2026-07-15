@@ -26,8 +26,28 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
-import type { Invoice, Party } from "@/lib/types";
+import type { BusinessProfile, Invoice, Party } from "@/lib/types";
 import type { InvoiceStatus } from "@/lib/status";
+
+/**
+ * The seller defaults a user's new invoices are pre-filled from — the
+ * server-side home for the `BusinessProfile` instant mode keeps in
+ * localStorage, seeded by the one-time import (see `docs/workspace-mode-design.md`).
+ *
+ * `user_id` is the primary key rather than a column with an index: a user has
+ * exactly one profile, and making that the key means the upsert has an obvious
+ * conflict target and a second row is unrepresentable.
+ */
+export const profiles = pgTable("profiles", {
+  userId: text("user_id").primaryKey(),
+  profile: jsonb("profile").notNull().$type<BusinessProfile>(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 /**
  * Saved clients — reusable bill-to parties, owner-scoped by Neon Auth user id.
@@ -105,3 +125,4 @@ export const invoices = pgTable(
 
 export type ClientRow = typeof clients.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
+export type ProfileRow = typeof profiles.$inferSelect;

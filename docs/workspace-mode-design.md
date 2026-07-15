@@ -75,6 +75,12 @@ only for display.
 -- Users live in Neon Auth's managed `neon_auth` schema (neon_auth.users_sync),
 -- created and synced by Neon — NOT migrated by this app.
 
+profiles                      -- added in step 7: the seller defaults new
+  user_id       text  pk         -- invoices are pre-filled from. One per user,
+  profile       jsonb not null   -- so user_id is the key, not an indexed column.
+  created_at    timestamptz not null default now()
+  updated_at    timestamptz not null default now()
+
 clients                       -- the "saved clients" feature
   id            uuid  pk
   user_id       text  not null        -- Neon Auth user id (no hard cross-schema FK)
@@ -120,8 +126,9 @@ Notes:
   existing `computeTotals` on every write, never hand-edited.
 - `overdue` is derived, not stored — matches how the UI already thinks about it.
 - All rows are owner-scoped; **every query filters by `user_id`** (see Security).
-- The app migrates only `clients` and `invoices`; the `neon_auth` schema is
-  provisioned and maintained by Neon Auth, not by our Drizzle migrations.
+- The app migrates only `profiles`, `clients` and `invoices`; the `neon_auth`
+  schema is provisioned and maintained by Neon Auth, not by our Drizzle
+  migrations.
 
 ## Auth: Neon Auth (Managed Better Auth)
 
@@ -258,6 +265,34 @@ defaults server-side. Instant-mode users lose nothing and start workspace mode
 pre-filled. The local profile is never uploaded automatically — the user clicks to
 import it.
 
+As built:
+
+- **"Seeds the seller defaults server-side" needed somewhere to put them**, which
+  the data model above never defined — so step 7 adds a `profiles` table
+  (`user_id` primary key, `profile` jsonb). The key is `user_id` rather than an
+  indexed column: a user has exactly one profile, so a second row should be
+  unrepresentable and the upsert gets an obvious conflict target.
+- `createInvoice` pre-fills new drafts through the same `applyProfile` merge
+  instant mode runs against localStorage — that merge moved from `storage.ts`
+  to `profile.ts` so server code can reach the rule without importing browser
+  persistence. Without a profile, drafts stay blank exactly as before.
+- **Nothing uploads on its own.** The banner reads localStorage into component
+  state; only pressing Import sends it. Declining is a localStorage flag, not a
+  column — the prompt can only appear on a device that has a local profile, so
+  the answer belongs on that device, and the server learns nothing from a "no".
+  Only the *existence* of a server profile crosses to the client, never its
+  contents.
+- The payload is narrowed (`isBusinessProfile`) and rebuilt
+  (`normalizeBusinessProfile`) rather than trusted. It comes off localStorage,
+  which anything on the origin can write, and lands in a jsonb column — the
+  `locale`/`template` unions erase at runtime, so they're checked against real
+  lists.
+- **Beyond the literal step: a "Save as default" button in the editor.** Without
+  it, a profile could only ever be set once, from localStorage, and never
+  corrected — the feature would be a dead end for anyone who imported stale
+  details or never had a local profile at all. It mirrors instant mode's "Save
+  business profile" and reuses the same pure `profileFromInvoice`.
+
 ## Environment / infra
 
 - `DATABASE_URL` (Neon), `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET` (≥32
@@ -301,7 +336,7 @@ Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 4. ✅ **Status tracking** — status column + transitions + derived overdue in the list.
 5. ✅ **Saved clients** — `clients` CRUD + form picker.
 6. ✅ **Shareable page** — `share_token` + `/i/[token]` read-only route.
-7. **Profile import** — one-time localStorage → account seeding.
+7. ✅ **Profile import** — one-time localStorage → account seeding.
 
 ## Resolved decisions
 

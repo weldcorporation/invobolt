@@ -14,6 +14,8 @@ import { getDb, schema } from "./db";
 import { deriveInvoiceColumns, nextInvoiceNumber } from "./invoice-row";
 import { emptyInvoice } from "./sample";
 import { isUniqueViolation } from "./pg-errors";
+import { applyProfile } from "./profile";
+import { getProfile } from "./profiles";
 import { isShareToken, mintShareToken } from "./share-token";
 import { sourcesFor, type InvoiceStatus } from "./status";
 import { isUuid } from "./uuid";
@@ -147,13 +149,19 @@ async function numbersInYear(userId: string, year: number): Promise<string[]> {
 /**
  * Create a fresh draft and return its id.
  *
+ * Pre-filled from the user's saved profile when they have one — that is what
+ * makes the import worth doing, and it's the same `applyProfile` merge instant
+ * mode runs against localStorage. Without a profile the draft is simply blank.
+ *
  * The number is pre-filled by reading the user's existing numbers, which races
  * with a concurrent create. Rather than lock, we let the unique index arbitrate
  * and retry — the loser simply re-reads and takes the next number.
  */
 export async function createInvoice(userId: string): Promise<string> {
   const year = new Date().getUTCFullYear();
-  const base = emptyInvoice(isoDate(0), isoDate(14));
+  const blank = emptyInvoice(isoDate(0), isoDate(14));
+  const profile = await getProfile(userId);
+  const base = profile ? applyProfile(blank, profile) : blank;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const taken = await numbersInYear(userId, year);
