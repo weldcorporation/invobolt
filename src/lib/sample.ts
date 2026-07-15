@@ -1,6 +1,6 @@
 /** Default invoice used to seed the generator so the preview is never empty. */
 
-import type { Invoice, LineItem } from "./types";
+import type { Invoice, LineItem, Party } from "./types";
 
 let idCounter = 0;
 /** Stable-per-session id generator (avoids SSR/client hydration mismatches). */
@@ -16,6 +16,39 @@ export function emptyItem(): LineItem {
     quantity: 1,
     unitPrice: 0,
     vatRate: 21,
+  };
+}
+
+export function emptyParty(): Party {
+  return { name: "", address: "", vatNumber: "", email: "", country: "" };
+}
+
+/**
+ * A blank invoice, used by workspace mode when the user creates a draft.
+ *
+ * Unlike `sampleInvoice` this carries no demo content: the sample's fake seller
+ * and "Acme Corp" client exist to make the instant-mode preview inviting on
+ * first paint, but writing them into someone's account would be filing
+ * fictional data. The number is assigned by the caller (see
+ * `nextInvoiceNumber`), and the seller is filled in by profile import (v0.2
+ * step 7) until which point the user types it once.
+ */
+export function emptyInvoice(today: string, due: string): Invoice {
+  return {
+    template: "modern",
+    locale: "en",
+    currency: "EUR",
+    seller: emptyParty(),
+    client: emptyParty(),
+    number: "",
+    issueDate: today,
+    dueDate: due,
+    items: [emptyItem()],
+    vatMode: "standard",
+    discountPercent: 0,
+    notes: "",
+    paymentTerms: "",
+    accentColor: "#F5A524",
   };
 }
 

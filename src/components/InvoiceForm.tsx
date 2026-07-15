@@ -4,7 +4,7 @@
  *  reports every change up via `onChange`. All persistence and export logic
  *  lives in the page. */
 
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import type { Invoice, LineItem, Locale, Party, TemplateId, VatMode } from "@/lib/types";
 import { CURRENCIES } from "@/lib/currency";
 import { ui } from "@/lib/i18n";
@@ -15,6 +15,14 @@ interface Props {
   invoice: Invoice;
   onChange: (next: Invoice) => void;
   uiLocale: Locale;
+  /**
+   * Optional slot above the bill-to fields, for workspace mode's saved-client
+   * picker. A slot rather than a `clients` prop on purpose: instant mode has no
+   * saved clients and no database, and this form is shared by both surfaces —
+   * so the workspace concept is injected, not imported. Omitted on `/`, where
+   * the form renders exactly as before.
+   */
+  clientPicker?: ReactNode;
 }
 
 const TEMPLATES: { id: TemplateId; label: string }[] = [
@@ -23,7 +31,12 @@ const TEMPLATES: { id: TemplateId; label: string }[] = [
   { id: "minimal", label: "Minimal" },
 ];
 
-export function InvoiceForm({ invoice, onChange, uiLocale }: Props) {
+export function InvoiceForm({
+  invoice,
+  onChange,
+  uiLocale,
+  clientPicker,
+}: Props) {
   const s = ui(uiLocale);
 
   const patch = (partial: Partial<Invoice>) =>
@@ -153,6 +166,7 @@ export function InvoiceForm({ invoice, onChange, uiLocale }: Props) {
 
       {/* Client */}
       <Section title={s.billTo}>
+        {clientPicker}
         <PartyFields
           party={invoice.client}
           onChange={(p) => patchParty("client", p)}
@@ -305,7 +319,8 @@ export function InvoiceForm({ invoice, onChange, uiLocale }: Props) {
   );
 }
 
-function PartyFields({
+/** Exported so the workspace clients page edits a party with this same surface. */
+export function PartyFields({
   party,
   onChange,
   s,

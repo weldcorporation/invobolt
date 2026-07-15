@@ -75,12 +75,22 @@ only for display.
 -- Users live in Neon Auth's managed `neon_auth` schema (neon_auth.users_sync),
 -- created and synced by Neon — NOT migrated by this app.
 
+profiles                      -- added in step 7: the seller defaults new
+  user_id       text  pk         -- invoices are pre-filled from. One per user,
+  profile       jsonb not null   -- so user_id is the key, not an indexed column.
+  created_at    timestamptz not null default now()
+  updated_at    timestamptz not null default now()
+
 clients                       -- the "saved clients" feature
   id            uuid  pk
   user_id       text  not null        -- Neon Auth user id (no hard cross-schema FK)
+  name          text  not null        -- lifted from party: what we sort on
+  name_key      text  not null        -- lower(name): what we dedupe on
   party         jsonb not null        -- a Party object
   created_at    timestamptz not null default now()
   updated_at    timestamptz not null default now()
+
+  unique (user_id, name_key)
 
 invoices
   id            uuid  pk
@@ -105,12 +115,20 @@ invoices
 ```
 
 Notes:
+- `clients.name`/`name_key` were **added during step 5** — this section
+  originally lifted nothing out of `party`. "Save this client" has to be an
+  upsert, which needs a key: without a unique index, saving Acme twice silently
+  accrues duplicate Acmes, and deduping in app code is a read-then-write race.
+  Lifting the field we index on is the same principle the invoice columns
+  follow. `name_key` is a stored column rather than a `lower(name)` index
+  expression only because a plain column can be an `ON CONFLICT` target.
 - `total_cents` is a cache for list/sort; it's recomputed from `document` via the
   existing `computeTotals` on every write, never hand-edited.
 - `overdue` is derived, not stored — matches how the UI already thinks about it.
 - All rows are owner-scoped; **every query filters by `user_id`** (see Security).
-- The app migrates only `clients` and `invoices`; the `neon_auth` schema is
-  provisioned and maintained by Neon Auth, not by our Drizzle migrations.
+- The app migrates only `profiles`, `clients` and `invoices`; the `neon_auth`
+  schema is provisioned and maintained by Neon Auth, not by our Drizzle
+  migrations.
 
 ## Auth: Neon Auth (Managed Better Auth)
 
@@ -148,7 +166,7 @@ SDK is currently beta) — acceptable because Neon is already the documented Pos
 | `/app` | server | required | invoice list + status |
 | `/app/invoices/[id]` | server + client editor | required | edit, reusing `InvoiceForm` |
 | `/app/clients` | server | required | saved clients CRUD |
-| `/i/[shareToken]` | server, cached | none (token = capability) | read-only public invoice |
+| `/i/[shareToken]` | server, never cached | none (token = capability) | read-only public invoice — see Feature notes for why not cached |
 | `/auth/sign-in` | client | none | magic-link sign-in (outside the proxy matcher) |
 | `/api/auth/[...path]` | route handler | — | Neon Auth proxy |
 
@@ -163,15 +181,80 @@ instead of load/save-to-localStorage.
 status and reuses the existing status colours (`paid`, `overdue` tokens already
 exist in the Tailwind theme).
 
+As built (`lib/status.ts` owns the machine; the schema imports the type from it,
+so client components get `InvoiceStatus` without pulling in Drizzle):
+
+- Each forward edge has an undo, because the forward edge is one click and
+  people mis-click: `sent → draft`, `paid → sent`, `void → draft`. `void` is
+  reachable from any live status; nothing transitions to itself, and
+  `draft → paid` must go through `sent`.
+- Legality is enforced in the UPDATE's `WHERE` (`status IN sourcesFor(next)`)
+  rather than by reading the row first, so the check is atomic — two tabs racing
+  to mark one invoice paid cannot both observe `sent` and both apply.
+- The status arriving at the Server Action is narrowed at runtime
+  (`isInvoiceStatus`), since the type annotation is erased in the compiled
+  output and the action is a public endpoint.
+- `overdue` is recomputed on every read from a server-supplied `today`, never
+  written. Due *today* is not yet overdue.
+
 **Saved clients.** A `Party` picker in the form that reads from `clients`.
 Selecting one fills `invoice.client`; a "save this client" action upserts. Purely
 additive to the existing form.
+
+As built:
+
+- "Purely additive" is enforced by shape: `InvoiceForm` gained one optional
+  `clientPicker?: ReactNode` slot, not a `clients` prop. Instant mode has no
+  database and passes nothing, so `/` renders exactly the form it did before —
+  the workspace concept is injected, never imported into the shared component.
+- Two write paths, deliberately: **upsert by name** (`saveClientAction`) is
+  right when saving a bill-to that may or may not already be a client, while
+  **update by id** (`updateClientAction`) is what the clients page edits with —
+  keying an edit by name would turn renaming Acme to Acme Ltd into a second row
+  and orphan the first.
+- Picking copies the saved party into the invoice. The invoice keeps its own
+  snapshot, so editing a saved client never rewrites history on invoices already
+  sent.
+- `/app/clients` reuses `PartyFields` from the invoice form verbatim: a saved
+  client is the same `Party` as a bill-to, so it gets the same editing surface.
 
 **Shareable invoice page.** "Share" mints a random `share_token` and exposes
 `/i/[token]` — a server-rendered, read-only `InvoiceDocument` with no app chrome
 and the same print stylesheet, so the recipient can view and print-to-PDF exactly
 what the sender sees. The token is an unguessable capability (revocable by nulling
 it); no recipient account required. `noindex` on the page.
+
+As built:
+
+- **Not cached** — this section originally said "server, cached", and that is
+  wrong for a capability URL. A cached HTML response keeps serving an invoice
+  after the sender revokes the link, which breaks the one property that makes
+  handing out a URL safe. The route is `force-dynamic`; the cost is one indexed
+  lookup on a unique column per view. Revocation is verified to take effect on
+  the next request.
+- Tokens are 192 bits from `crypto.getRandomValues`, base64url. Nothing about
+  them is derived from the row — an id or a hash of the invoice number would be
+  predictable from information the recipient already has.
+- Sharing is **idempotent**: pressing Share twice returns the existing token
+  rather than rotating it, or the link already emailed to the client would
+  quietly die. The `IS NULL` guard sits in the WHERE clause so concurrent
+  shares can't each mint a token and leave one caller holding a dead URL.
+- Unknown, malformed, and revoked tokens all 404 identically — distinguishing
+  them would confirm which tokens once existed.
+- `getSharedInvoice` selects only `status` and `document`: never the owner or
+  the row id, so a link-holder has nothing to pivot on. It is the single
+  deliberate exception to owner-scoping, and `tenant-isolation.test.ts` names it
+  explicitly so it can't quietly become the pattern.
+
+**Not implemented: rate limiting.** The Security section below asks for it and
+this does not have it. A per-instance in-memory limiter is close to useless on
+serverless, where requests spread across instances, and doing it properly needs
+a shared store (Vercel KV / Upstash) — new infrastructure and a new env var,
+which felt like more than this step should smuggle in. The exposure is small:
+guessing a 192-bit token is infeasible, so a limiter here buys protection
+against volumetric abuse rather than enumeration, and that is better handled at
+the edge/CDN. Worth revisiting if `/i/**` ever gets an endpoint that costs more
+than one indexed lookup.
 
 ## Migration from instant mode
 
@@ -181,6 +264,34 @@ offer a one-time **"import your saved profile"** step that seeds the seller
 defaults server-side. Instant-mode users lose nothing and start workspace mode
 pre-filled. The local profile is never uploaded automatically — the user clicks to
 import it.
+
+As built:
+
+- **"Seeds the seller defaults server-side" needed somewhere to put them**, which
+  the data model above never defined — so step 7 adds a `profiles` table
+  (`user_id` primary key, `profile` jsonb). The key is `user_id` rather than an
+  indexed column: a user has exactly one profile, so a second row should be
+  unrepresentable and the upsert gets an obvious conflict target.
+- `createInvoice` pre-fills new drafts through the same `applyProfile` merge
+  instant mode runs against localStorage — that merge moved from `storage.ts`
+  to `profile.ts` so server code can reach the rule without importing browser
+  persistence. Without a profile, drafts stay blank exactly as before.
+- **Nothing uploads on its own.** The banner reads localStorage into component
+  state; only pressing Import sends it. Declining is a localStorage flag, not a
+  column — the prompt can only appear on a device that has a local profile, so
+  the answer belongs on that device, and the server learns nothing from a "no".
+  Only the *existence* of a server profile crosses to the client, never its
+  contents.
+- The payload is narrowed (`isBusinessProfile`) and rebuilt
+  (`normalizeBusinessProfile`) rather than trusted. It comes off localStorage,
+  which anything on the origin can write, and lands in a jsonb column — the
+  `locale`/`template` unions erase at runtime, so they're checked against real
+  lists.
+- **Beyond the literal step: a "Save as default" button in the editor.** Without
+  it, a profile could only ever be set once, from localStorage, and never
+  corrected — the feature would be a dead end for anyone who imported stale
+  details or never had a local profile at all. It mirrors instant mode's "Save
+  business profile" and reuses the same pure `profileFromInvoice`.
 
 ## Environment / infra
 
@@ -201,8 +312,9 @@ import it.
 - **Tenant isolation:** every DB access is scoped by the session `user_id`; no
   endpoint accepts a raw `id` without the ownership filter. Add a test-level
   helper so this can't regress silently.
-- **Share tokens** are high-entropy random (≥128 bits), capability-style,
-  revocable, and the share route is `noindex` + rate-limited.
+- **Share tokens** are high-entropy random (≥128 bits — 192 as built),
+  capability-style, revocable, and the share route is `noindex`. Rate limiting
+  is **not** implemented; see the reasoning under Feature notes.
 - **No secrets in the document JSON.** `logoDataUrl` can be large; cap its size on
   write (already a data URL, kept small in instant mode).
 - Magic-link tokens and session lifetimes are managed by Neon Auth; sign-in
@@ -214,17 +326,17 @@ import it.
 
 Each step is independently shippable behind `WORKSPACE_ENABLED=false`:
 
-1. **DB foundation** — Drizzle + Neon wiring, schema, migrations, `db:migrate`,
+1. ✅ **DB foundation** — Drizzle + Neon wiring, schema, migrations, `db:migrate`,
    CI migration check. No UI.
-2. **Auth** — Neon Auth (Managed Better Auth): server instance, `/api/auth`
+2. ✅ **Auth** — Neon Auth (Managed Better Auth): server instance, `/api/auth`
    proxy, `/app` shell gated by the proxy, magic-link sign-in + sign-out. Bare
    authenticated page.
-3. **Invoice persistence** — list + editor on `/app`, autosave, reuse of
+3. ✅ **Invoice persistence** — list + editor on `/app`, autosave, reuse of
    `InvoiceForm`/`InvoiceDocument`, `total_cents` via `computeTotals`.
-4. **Status tracking** — status column + transitions + derived overdue in the list.
-5. **Saved clients** — `clients` CRUD + form picker.
-6. **Shareable page** — `share_token` + `/i/[token]` read-only route.
-7. **Profile import** — one-time localStorage → account seeding.
+4. ✅ **Status tracking** — status column + transitions + derived overdue in the list.
+5. ✅ **Saved clients** — `clients` CRUD + form picker.
+6. ✅ **Shareable page** — `share_token` + `/i/[token]` read-only route.
+7. ✅ **Profile import** — one-time localStorage → account seeding.
 
 ## Resolved decisions
 

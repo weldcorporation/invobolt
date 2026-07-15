@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isWorkspaceEnabled } from "@/lib/workspace";
 
@@ -23,6 +24,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               Invobolt <span className="text-neutral-400">Workspace</span>
             </div>
           </div>
+
+          <nav className="flex items-center gap-1 text-sm">
+            <Link
+              href="/app"
+              className="rounded-md px-3 py-1.5 font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Invoices
+            </Link>
+            <Link
+              href="/app/clients"
+              className="rounded-md px-3 py-1.5 font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Clients
+            </Link>
+          </nav>
         </div>
       </header>
       <main className="mx-auto max-w-[1100px] px-4 py-8">{children}</main>
