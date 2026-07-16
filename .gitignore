@@ -21,9 +21,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env
-.env*.local
+# env files — catch every local variant (.env, .env.local, .env.production,
+# .env.production.local, ...). `.env.example` is documentation, so keep it
+# committable. The broad rule came from `vercel link`; it also closes a real gap,
+# since `.env` + `.env*.local` alone never covered a plain `.env.production`.
+.env*
+!.env.example
 
 # typescript
 *.tsbuildinfo
