@@ -189,6 +189,23 @@ exchange, but it also demands a `session_challange` cookie that only the OAuth
 flow sets, so it never fires for magic link. And `sameSite` is not involved —
 sign-in works under `strict` too; the exchange is a same-origin fetch.
 
+### The proxy only gates GET
+
+The SDK's middleware checks the session by forwarding **the incoming request**
+upstream — `method: request.method` — to Neon's `get-session`, which only answers
+GET. A Server Action's `POST /app` is therefore forwarded as a POST, rejected,
+read as "no session", and answered with a `307` to sign-in. Since 307 preserves
+the method, the action POSTs itself into the sign-in page and gets HTML where it
+expected a result. Every write under `/app` fails this way, and nothing errors
+server-side — the only visible symptom is the client's own catch.
+
+So `src/proxy.ts` runs the SDK middleware for GET/HEAD only. This gives up
+nothing: `requireUserId()` is the real boundary and every action calls it (see
+Security & privacy). The proxy is the redirect-to-sign-in courtesy on top.
+
+`src/proxy.test.ts` pins this, because deleting the check typechecks, builds, and
+leaves `/app` rendering perfectly while every write silently fails.
+
 ## Routing & rendering
 
 | Route | Rendering | Auth | Notes |
