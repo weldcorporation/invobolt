@@ -189,7 +189,7 @@ exchange, but it also demands a `session_challange` cookie that only the OAuth
 flow sets, so it never fires for magic link. And `sameSite` is not involved —
 sign-in works under `strict` too; the exchange is a same-origin fetch.
 
-### The proxy only gates GET
+### The proxy only gates navigations
 
 The SDK's middleware checks the session by forwarding **the incoming request**
 upstream — `method: request.method` — to Neon's `get-session`, which only answers
