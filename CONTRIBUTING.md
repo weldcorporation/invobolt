@@ -10,16 +10,16 @@ By participating you agree to abide by our [Code of Conduct](./CODE_OF_CONDUCT.m
 ```bash
 git clone https://github.com/weldcorporation/invobolt.git
 cd invobolt
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Before opening a pull request, make sure the checks pass:
 
 ```bash
-npm run lint
-npm run typecheck
-npm run build
+ppnpm run lint
+pnpm run typecheck
+pnpm run build
 ```
 
 ## Ground rules
@@ -30,7 +30,7 @@ npm run build
 - **The user's invoice is the hero.** Templates stay restrained — don't
   over-brand exports.
 - **Small, focused PRs** are easier to review and land faster.
-- Match the surrounding code style; `npm run lint` is the source of truth.
+- Match the surrounding code style; `ppnpm run lint` is the source of truth.
 
 ## Great first contributions
 

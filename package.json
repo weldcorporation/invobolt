@@ -5,6 +5,7 @@
   "description": "Free, open-source invoice generator — create and export a professional invoice in seconds, no login.",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "packageManager": "pnpm@11.13.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

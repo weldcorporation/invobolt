@@ -41,8 +41,8 @@ import, and recurring invoices are on the [roadmap](#roadmap).
 ## Quick start
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 # open http://localhost:3000
 ```
 
@@ -50,13 +50,13 @@ npm run dev
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Start the dev server |
-| `npm run build` | Production build |
-| `npm run start` | Serve the production build |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | TypeScript, no emit |
-| `npm test` | Run the unit tests (Vitest) |
-| `npm run test:watch` | Vitest in watch mode |
+| `pnpm run dev` | Start the dev server |
+| `pnpm run build` | Production build |
+| `pnpm run start` | Serve the production build |
+| `pnpm run lint` | ESLint |
+| `pnpm run typecheck` | TypeScript, no emit |
+| `pnpm test` | Run the unit tests (Vitest) |
+| `pnpm run test:watch` | Vitest in watch mode |
 
 ## How PDF export works
 
