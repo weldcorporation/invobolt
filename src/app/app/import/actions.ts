@@ -79,9 +79,22 @@ export async function previewStripeAction(
     : null;
 
   const pasted = key.trim();
-  const resolved = pasted ? pasted : serverStripeKey();
+  const continuing = customersAfter !== null || itemsAfter !== null;
+
+  // A continuation has to read the same Stripe account the cursor came from,
+  // and the browser deliberately forgets the key after each batch — so the
+  // only way to be sure is to insist on it. Falling back to a self-hoster's
+  // configured key here would answer the next batch from *that* account and
+  // splice two accounts' customers into one list, under a cursor that doesn't
+  // even belong to it.
+  const resolved = pasted ? pasted : continuing ? null : serverStripeKey();
   if (!resolved) {
-    return { ok: false, error: "Paste a Stripe restricted key (rk_…)." };
+    return {
+      ok: false,
+      error: continuing
+        ? "Paste your key again to fetch the next batch."
+        : "Paste a Stripe restricted key (rk_…).",
+    };
   }
   if (!isStripeKeyShape(resolved)) {
     return {

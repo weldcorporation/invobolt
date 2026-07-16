@@ -19,7 +19,19 @@ import {
 import { requireUserId } from "@/lib/session";
 import { todayIso } from "@/lib/status";
 
-export type ScheduleResult = { ok: true } | { ok: false; error: string };
+export type ScheduleResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      /**
+       * Why it failed, when the caller can act on it. `already-scheduled` is
+       * not really a failure — the invoice is in the state the user asked for,
+       * someone else just got there first — so the editor updates rather than
+       * only apologising.
+       */
+      code?: "already-scheduled";
+    };
 
 /** Payment terms live between "due on receipt" and a year — anything else is a typo. */
 const MAX_TERMS_DAYS = 365;
@@ -78,6 +90,7 @@ export async function makeRecurringAction(
         ok: false,
         error:
           "This invoice already has a schedule. Manage it under Recurring.",
+        code: "already-scheduled",
       };
     }
     throw error;

@@ -101,7 +101,7 @@ export function InvoiceEditor({
   const dirty = useRef(false);
 
   const save = useCallback(
-    async (document: Invoice) => {
+    async (document: Invoice): Promise<boolean> => {
       dirty.current = false;
       setSaveState({ kind: "saving" });
       try {
@@ -111,15 +111,44 @@ export function InvoiceEditor({
             ? { kind: "saved" }
             : { kind: "error", message: result.error },
         );
+        return result.ok;
       } catch {
         setSaveState({
           kind: "error",
           message: "Couldn't reach the server — your last change isn't saved.",
         });
+        return false;
       }
     },
     [id],
   );
+
+  /**
+   * Persist a debounced edit *now*, and report whether the stored invoice
+   * matches what's on screen.
+   *
+   * Autosave means the row trails the editor by up to `AUTOSAVE_MS`, which is
+   * invisible until an action reads the invoice **server-side** rather than
+   * being handed the document. Making this invoice recurring does exactly
+   * that, and it copies what it reads into a template — so a schedule created
+   * in that window would quietly recur the *previous* version of the invoice,
+   * every period, until someone noticed. Anything server-reading must flush
+   * first and stop if the flush fails.
+   */
+  const flushPendingSave = useCallback(async (): Promise<boolean> => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (!dirty.current) return true;
+
+    const problems = validateInvoice(latest.current);
+    if (problems.length > 0) {
+      setSaveState({ kind: "error", message: problems[0] });
+      return false;
+    }
+    return save(latest.current);
+  }, [save]);
 
   const onChange = (next: Invoice) => {
     setInvoice(next);
@@ -330,6 +359,7 @@ export function InvoiceEditor({
         defaultTermsDays={termsDaysFrom(invoice.issueDate, invoice.dueDate)}
         emailEnabled={emailEnabled}
         hasSchedule={hasSchedule}
+        flushPendingSave={flushPendingSave}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">

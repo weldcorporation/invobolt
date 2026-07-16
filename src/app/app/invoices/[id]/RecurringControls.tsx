@@ -16,6 +16,11 @@ interface Props {
    * this is so the UI doesn't offer what would be refused.
    */
   hasSchedule: boolean;
+  /**
+   * Persist any debounced edit and report success. The schedule is built from
+   * the invoice as *stored*, so this must land before one is created.
+   */
+  flushPendingSave: () => Promise<boolean>;
 }
 
 /**
@@ -28,6 +33,7 @@ export function RecurringControls({
   defaultTermsDays,
   emailEnabled,
   hasSchedule,
+  flushPendingSave,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [cadence, setCadence] = useState<Cadence>("monthly");
@@ -35,19 +41,40 @@ export function RecurringControls({
   const [autoSend, setAutoSend] = useState(false);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(false);
+  // A schedule this session didn't create, discovered when the server refused
+  // ours: another tab got there first. Distinct from `created` so the copy
+  // doesn't claim credit for it.
+  const [foundExisting, setFoundExisting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scheduled = hasSchedule || created;
+  const scheduled = hasSchedule || created || foundExisting;
 
   const onCreate = async () => {
     setBusy(true);
     setError(null);
     try {
+      // The template is the invoice as stored, and autosave runs on a delay —
+      // so without this, creating a schedule seconds after an edit templates
+      // the version before it.
+      if (!(await flushPendingSave())) {
+        setError(
+          "Your latest changes aren't saved yet — a schedule would copy the invoice without them.",
+        );
+        return;
+      }
+
       const result = await makeRecurringAction(id, cadence, termsDays, autoSend);
       if (result.ok) {
         setCreated(true);
         setOpen(false);
-      } else setError(result.error);
+        return;
+      }
+      setError(result.error);
+      // The invoice is scheduled — just not by us. Stop offering to create one.
+      if (result.code === "already-scheduled") {
+        setFoundExisting(true);
+        setOpen(false);
+      }
     } catch {
       setError("Couldn't reach the server — no schedule was created.");
     } finally {
@@ -65,6 +92,7 @@ export function RecurringControls({
         <>
           <select
             value={cadence}
+            aria-label="How often to generate this invoice"
             onChange={(e) => setCadence(e.target.value as Cadence)}
             className="rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-xs dark:border-neutral-800 dark:bg-neutral-950"
           >
