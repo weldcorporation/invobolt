@@ -80,7 +80,16 @@ touches `/`, so everything above stays true: instant mode remains local-first
 and login-free. Design and as-built notes:
 [workspace-mode-design.md](./workspace-mode-design.md).
 
+## Payments & delivery (v0.3)
+
+Email delivery (Resend), "Pay now" links, Stripe import, and recurring
+invoices — all workspace-mode features, all gated on their own env vars, and
+none of them touching this instant-mode core. Notably, email delivery links
+to the shared invoice page rather than attaching a PDF, precisely so the
+print pipeline above stays the *only* render path. Design and as-built notes:
+[v0.3-design.md](./v0.3-design.md).
+
 ## What's intentionally not here yet
 
-Stripe import, "Pay now" links, recurring invoices, and email delivery are
-planned for v0.3. See the [roadmap](../README.md#roadmap).
+Stripe webhooks (auto-mark paid) and payment-link generation are planned for
+v0.4. See the [roadmap](../README.md#roadmap).

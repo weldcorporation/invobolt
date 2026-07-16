@@ -27,7 +27,9 @@ gives away the fastest possible invoice generator instead:
 This repository contains the **instant-mode generator** (v0.1) and the optional
 **workspace mode** (v0.2): sign in with a magic link to keep invoices across
 devices, track their status, save clients, and hand out a read-only invoice
-link. Stripe import and recurring invoices are on the [roadmap](#roadmap).
+link. v0.3 adds **payments & delivery** on top: email an invoice to its
+recipient, put a "Pay now" link on it, import customers and products from
+Stripe, and generate recurring invoices on a schedule.
 
 ## Features
 
@@ -50,10 +52,16 @@ link. Stripe import and recurring invoices are on the [roadmap](#roadmap).
 - 👥 Saved clients, reusable across invoices
 - 🔗 Shareable read-only invoice page at an unguessable, revocable URL
 - 📥 One-click import of your local business profile on first sign-in
+- ✉️ Email the invoice to your client (Resend) — a revocable link, not an attachment
+- 💳 "Pay now" button on the shared page and in the email — paste any https payment link
+- 🔁 Recurring invoices: schedules that generate fresh drafts on cadence, optionally auto-sent
+- 🧲 Stripe import: customers → saved clients, products → reusable line items (paste a read-only key; it is never stored)
 
 Workspace mode mounts only when `WORKSPACE_ENABLED=true` (see
 [`.env.example`](./.env.example)); without it the app is exactly the
 instant-mode build, and `/` never reads a cookie or touches a database either way.
+The v0.3 features gate the same way on their own env vars — no Resend key means
+no Send button, no `CRON_SECRET` means no cron endpoint.
 
 ## Quick start
 
@@ -104,10 +112,11 @@ src/
 │  ├─ layout.tsx        # document shell + metadata
 │  ├─ page.tsx          # instant mode: the generator (state owner)
 │  ├─ globals.css       # styles + print stylesheet
-│  ├─ app/              # workspace mode: invoice list, editor, clients
+│  ├─ app/              # workspace mode: invoices, clients, recurring, import
 │  ├─ auth/             # magic-link sign-in + callback
-│  ├─ i/[token]/        # public read-only shared invoice
-│  └─ api/auth/         # Neon Auth proxy route
+│  ├─ i/[token]/        # public read-only shared invoice (+ Pay now)
+│  ├─ api/auth/         # Neon Auth proxy route
+│  └─ api/cron/         # recurring-invoice generation (CRON_SECRET-gated)
 ├─ components/
 │  ├─ InvoiceForm.tsx   # the editing surface (both modes)
 │  ├─ InvoiceDocument.tsx  # the 3 printable templates (both modes)
@@ -132,7 +141,8 @@ how to add a template, a locale, or a currency.
 
 - **v0.1** ✅ — instant-mode generator, live preview, VAT + multi-currency, PDF export, 3 templates, business-profile memory.
 - **v0.2** ✅ — workspace mode (magic link + Neon), status tracking, saved clients, shareable invoice page. → [design & as-built notes](./docs/workspace-mode-design.md)
-- **v0.3** *(next)* — Stripe import (customers/products) + "Pay now" links, recurring invoices, email delivery.
+- **v0.3** ✅ — email delivery, "Pay now" links, Stripe import (customers/products), recurring invoices. → [design & as-built notes](./docs/v0.3-design.md)
+- **v0.4** — Stripe webhooks (auto-mark paid), payment-link generation.
 - **v1.0** — polished templates, more locales, self-host Docker image.
 
 ## Contributing
