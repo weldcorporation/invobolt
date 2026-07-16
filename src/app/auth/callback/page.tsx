@@ -38,26 +38,50 @@ export default function AuthCallbackPage() {
     if (started.current) return;
     started.current = true;
 
+    // A hung fetch resolves neither `then` nor `catch`, which would leave the
+    // spinner up forever on the one page every user has to get through. Give up
+    // and offer a way out. Deliberately no `clearTimeout` in an effect cleanup:
+    // the `started` guard above means a StrictMode remount returns early and
+    // would never re-arm the timer, so cleaning it up there would disable this
+    // in development — the one place we'd notice it.
+    let settled = false;
+    const giveUp = setTimeout(() => {
+      if (!settled) setFailed(true);
+    }, 10_000);
+
+    const stop = () => {
+      settled = true;
+      clearTimeout(giveUp);
+    };
+
     authClient
       .getSession()
       .then(({ data }) => {
+        stop();
         if (data) {
           // `replace`, not `push` — the spent verifier must not be reachable
-          // with the back button.
+          // with the back button. Still worth doing if we already gave up: a
+          // late success beats a stale error.
           router.replace("/app");
         } else {
           setFailed(true);
         }
       })
-      .catch(() => setFailed(true));
+      .catch(() => {
+        stop();
+        setFailed(true);
+      });
   }, [router]);
 
   if (failed) {
     return (
       <div className="w-full max-w-sm rounded-xl border border-neutral-200 p-6 text-center shadow-sm dark:border-neutral-800">
+        {/* Covers both ways we get here: a link that was rejected, and one we
+            gave up waiting on. Naming only the first would be a guess, and the
+            remedy is the same either way. */}
         <p className="text-sm text-neutral-600 dark:text-neutral-300">
-          That sign-in link didn&apos;t work — it may have expired or already
-          been used.
+          We couldn&apos;t finish signing you in. The link may have expired or
+          already been used — or the connection stalled.
         </p>
         <a
           href="/auth/sign-in"
