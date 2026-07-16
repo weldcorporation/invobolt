@@ -17,7 +17,7 @@ pnpm run dev
 Before opening a pull request, make sure the checks pass:
 
 ```bash
-ppnpm run lint
+pnpm run lint
 pnpm run typecheck
 pnpm run build
 ```
@@ -30,7 +30,7 @@ pnpm run build
 - **The user's invoice is the hero.** Templates stay restrained — don't
   over-brand exports.
 - **Small, focused PRs** are easier to review and land faster.
-- Match the surrounding code style; `ppnpm run lint` is the source of truth.
+- Match the surrounding code style; `pnpm run lint` is the source of truth.
 
 ## Great first contributions
 
