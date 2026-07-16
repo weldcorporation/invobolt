@@ -306,6 +306,18 @@ As built:
   incrementally behind a flag.
 - Drizzle migrations in `drizzle/`, run via a new `db:migrate` script. CI gains a
   step that checks migrations are in sync with the schema.
+- **Deploys migrate themselves.** `vercel.json` points `buildCommand` at
+  `pnpm run vercel-build`, which runs `scripts/predeploy-migrate.mjs` before
+  `next build`, so a deployment's tables exist before it serves a request. The
+  step is gated on `WORKSPACE_ENABLED` and no-ops for instant-mode builds. The
+  explicit `buildCommand` is required: with the Next.js preset and a `build`
+  script present, Vercel would run `build` and never reach `vercel-build`.
+- **Functions run in `fra1` (Frankfurt)**, set via `regions` in `vercel.json`,
+  because Neon lives in `eu-central-1`. Vercel's default is `iad1` (Washington
+  DC), which would put the Atlantic between every workspace query and its
+  database — twice per round trip — and process EU invoice data in the US. Both
+  the latency and the data-residency story matter here (see EU-first, above), so
+  compute stays next to the data. If the database ever moves, this moves with it.
 
 ## Security & privacy
 
