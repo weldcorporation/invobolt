@@ -35,6 +35,16 @@ export function dailyEmailCap(): number {
   return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_DAILY_CAP;
 }
 
+/**
+ * How long to wait on Resend before giving up.
+ *
+ * Without a bound, a stalled provider connection holds the Server Action (or a
+ * cron invocation generating many invoices) open until the platform kills it —
+ * the user watches a spinner and learns nothing. Ten seconds is far past a
+ * healthy API call and far short of any function timeout.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export interface EmailDelivery {
   /** Resend's message id, for tracing a delivery complaint. */
   providerId: string | null;
@@ -56,6 +66,9 @@ export async function deliverEmail(
     throw new Error("Email delivery is not configured.");
   }
 
+  // An abort surfaces as a thrown error, which is already the "delivery
+  // failed" path every caller handles — a timeout needs no special casing,
+  // only a bound.
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -63,6 +76,7 @@ export async function deliverEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ from, to: [to], subject, text }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {

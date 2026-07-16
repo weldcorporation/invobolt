@@ -8,7 +8,7 @@
  */
 
 import "server-only";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import { clientNameKey, normalizeParty } from "./party";
 import { isUniqueViolation } from "./pg-errors";
@@ -84,23 +84,44 @@ export async function upsertClient(
 }
 
 /**
+ * What became of one imported Stripe customer. `name-taken` means the user
+ * already has a *different* client under that name — the caller reports it
+ * rather than guessing which one was meant.
+ */
+export type ClientImportOutcome = "imported" | "name-taken";
+
+/**
  * Import one Stripe customer as a saved client (v0.3).
  *
  * The upsert is keyed on the *Stripe id* (the partial unique index), so
  * re-importing after a rename in Stripe updates the same client in place —
  * a name-keyed upsert would resurrect the old name as a second row.
  *
- * When the insert instead trips the *name* index, the user already has a
- * client under that name (saved by hand, or an earlier import). Names are the
- * human identity here, so we adopt that row: attach the Stripe id and refresh
- * the party. Callers validate the party first, like every other write.
+ * Two unique indexes cover this table, and a single statement can only name
+ * one as its conflict target, so the *name* index arrives as a thrown
+ * violation. Two different things throw it:
+ *
+ *   - the insert, when this user already has a client under this name;
+ *   - the ON CONFLICT DO UPDATE itself, when a customer renamed in Stripe
+ *     renames its row onto a name another row already holds.
+ *
+ * Either way the recovery is the same, and its `WHERE` is the whole point: we
+ * adopt the name-holder **only if it isn't already another Stripe customer's
+ * row**. Attaching this id to that row would silently re-point that customer's
+ * client at this one — a corruption that would then ping-pong on every
+ * re-import as each customer stole the name back. Two Stripe customers cannot
+ * share one name here; the unique index says so, and saying "skipped" is the
+ * honest answer.
+ *
+ * Callers validate the party first, like every other write.
  */
 export async function importStripeClient(
   userId: string,
   stripeCustomerId: string,
   party: Party,
-): Promise<void> {
+): Promise<ClientImportOutcome> {
   const normalized = normalizeParty(party);
+  const nameKey = clientNameKey(normalized.name);
 
   try {
     await getDb()
@@ -108,7 +129,7 @@ export async function importStripeClient(
       .values({
         userId,
         name: normalized.name,
-        nameKey: clientNameKey(normalized.name),
+        nameKey,
         party: normalized,
         stripeCustomerId,
       })
@@ -117,23 +138,41 @@ export async function importStripeClient(
         targetWhere: sql`stripe_customer_id is not null`,
         set: {
           name: normalized.name,
-          nameKey: clientNameKey(normalized.name),
+          nameKey,
           party: normalized,
           updatedAt: new Date(),
         },
       });
+    return "imported";
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
+  }
 
-    await getDb()
+  try {
+    const adopted = await getDb()
       .update(clients)
       .set({ stripeCustomerId, party: normalized, updatedAt: new Date() })
       .where(
         and(
           ownedClients(userId),
-          eq(clients.nameKey, clientNameKey(normalized.name)),
+          eq(clients.nameKey, nameKey),
+          // Unlinked (saved by hand) or already ours. The guard lives in the
+          // WHERE so the check and the write are one atomic statement.
+          or(
+            isNull(clients.stripeCustomerId),
+            eq(clients.stripeCustomerId, stripeCustomerId),
+          ),
         ),
-      );
+      )
+      .returning({ id: clients.id });
+
+    return adopted.length > 0 ? "imported" : "name-taken";
+  } catch (error) {
+    // The name-holder was adoptable, but taking the name would leave this
+    // Stripe id on two rows — our own earlier row still holds it. Same
+    // ambiguity, same answer.
+    if (!isUniqueViolation(error)) throw error;
+    return "name-taken";
   }
 }
 

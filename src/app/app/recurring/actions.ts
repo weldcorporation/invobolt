@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { isCadence } from "@/lib/cadence";
 import { isEmailEnabled } from "@/lib/email";
 import { getInvoice } from "@/lib/invoices";
+import { isUniqueViolation } from "@/lib/pg-errors";
 import {
   createSchedule,
   deleteSchedule,
@@ -58,16 +59,32 @@ export async function makeRecurringAction(
   const invoice = await getInvoice(userId, invoiceId);
   if (!invoice) return { ok: false, error: "This invoice no longer exists." };
 
-  await createSchedule(
-    userId,
-    invoice.document,
-    cadence,
-    paymentTermsDays,
-    send,
-    todayIso(),
-  );
+  try {
+    await createSchedule(
+      userId,
+      invoice.id,
+      invoice.document,
+      cadence,
+      paymentTermsDays,
+      send,
+      todayIso(),
+    );
+  } catch (error) {
+    // The unique index arbitrates: this invoice already has a schedule. A
+    // second one would generate — and with auto-send, email — a duplicate
+    // invoice every period, which is why this is refused rather than merged.
+    if (isUniqueViolation(error)) {
+      return {
+        ok: false,
+        error:
+          "This invoice already has a schedule. Manage it under Recurring.",
+      };
+    }
+    throw error;
+  }
 
   revalidatePath("/app/recurring");
+  revalidatePath(`/app/invoices/${invoiceId}`);
   return { ok: true };
 }
 

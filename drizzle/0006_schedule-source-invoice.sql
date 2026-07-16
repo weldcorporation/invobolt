@@ -1,0 +1,2 @@
+ALTER TABLE "schedules" ADD COLUMN "source_invoice_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX "schedules_user_source_idx" ON "schedules" USING btree ("user_id","source_invoice_id") WHERE "schedules"."source_invoice_id" is not null;

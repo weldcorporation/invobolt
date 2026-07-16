@@ -38,6 +38,28 @@ export interface ScheduleListItem {
   active: boolean;
 }
 
+/**
+ * Whether this invoice already has a schedule. The editor asks on every load,
+ * so "Make recurring" reflects the database rather than what this browser tab
+ * happens to remember — a reload must not offer to create a second one.
+ */
+export async function scheduleForInvoice(
+  userId: string,
+  invoiceId: string,
+): Promise<{ id: string; active: boolean } | null> {
+  if (!isUuid(invoiceId)) return null;
+
+  const rows = await getDb()
+    .select({ id: schedules.id, active: schedules.active })
+    .from(schedules)
+    .where(
+      and(ownedSchedules(userId), eq(schedules.sourceInvoiceId, invoiceId)),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 /** The user's schedules, soonest next invoice first. */
 export async function listSchedules(
   userId: string,
@@ -66,9 +88,15 @@ export async function listSchedules(
  * making an old invoice recurring must schedule the future, never backfill
  * the past. Callers pass the *server's* copy of the document — the schedule
  * template is account data, not whatever a client posted.
+ *
+ * Throws a unique violation when the invoice already has a schedule; the
+ * action turns that into a message. The index is the guard rather than a
+ * read-then-insert, so two racing clicks can't both pass the check and leave
+ * the client billed twice a period, forever.
  */
 export async function createSchedule(
   userId: string,
+  sourceInvoiceId: string,
   document: Invoice,
   cadence: Cadence,
   paymentTermsDays: number,
@@ -83,6 +111,7 @@ export async function createSchedule(
     .insert(schedules)
     .values({
       userId,
+      sourceInvoiceId,
       document,
       cadence,
       nextIssueDate: firstIssueDateAfter(anchor, cadence, today),

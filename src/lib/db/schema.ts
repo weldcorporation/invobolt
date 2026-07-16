@@ -220,6 +220,12 @@ export const schedules = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
+    // The invoice this schedule was made from. Not a foreign key (deleting the
+    // source invoice must not delete the schedule that outlived it), and
+    // nullable so a schedule can survive it — but while it is set, the partial
+    // unique index below is what stops one invoice becoming two schedules and
+    // billing the client twice every period.
+    sourceInvoiceId: uuid("source_invoice_id"),
     document: jsonb("document").notNull().$type<Invoice>(),
     cadence: text("cadence").notNull().$type<Cadence>(),
     nextIssueDate: date("next_issue_date").notNull(),
@@ -239,6 +245,12 @@ export const schedules = pgTable(
     index("schedules_user_id_idx").on(t.userId),
     // The cron's scan: active schedules ordered/filtered by due date.
     index("schedules_due_idx").on(t.active, t.nextIssueDate),
+    // One schedule per source invoice. An index rather than a check in the
+    // action, so two racing clicks (or a reloaded page) cannot both insert:
+    // the database arbitrates, exactly as it does for invoice numbers.
+    uniqueIndex("schedules_user_source_idx")
+      .on(t.userId, t.sourceInvoiceId)
+      .where(sql`${t.sourceInvoiceId} is not null`),
   ],
 );
 

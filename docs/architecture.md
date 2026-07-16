@@ -83,11 +83,19 @@ and login-free. Design and as-built notes:
 ## Payments & delivery (v0.3)
 
 Email delivery (Resend), "Pay now" links, Stripe import, and recurring
-invoices — all workspace-mode features, all gated on their own env vars, and
-none of them touching this instant-mode core. Notably, email delivery links
-to the shared invoice page rather than attaching a PDF, precisely so the
-print pipeline above stays the *only* render path. Design and as-built notes:
-[v0.3-design.md](./v0.3-design.md).
+invoices — all workspace-mode features, none of them touching this
+instant-mode core. What each needs on top of `WORKSPACE_ENABLED` differs:
+
+| Feature | Configuration | Unconfigured |
+| --- | --- | --- |
+| Email delivery | `EMAIL_FROM` + `RESEND_API_KEY` | no Send button |
+| Recurring generation | `CRON_SECRET` | `/api/cron/recurring` 404s |
+| "Pay now" links | none — the sender pastes a URL per invoice | no button on the invoice |
+| Stripe import | none — the user pastes a key per import (`STRIPE_RESTRICTED_KEY` is a self-host default) | nothing; the flow asks for a key |
+
+Notably, email delivery links to the shared invoice page rather than
+attaching a PDF, precisely so the print pipeline above stays the *only*
+render path. Design and as-built notes: [v0.3-design.md](./v0.3-design.md).
 
 ## What's intentionally not here yet
 

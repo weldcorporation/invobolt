@@ -64,6 +64,8 @@ interface Props {
   initialPaymentLink: string | null;
   /** Whether this deployment can send email (see `isEmailEnabled`). */
   emailEnabled: boolean;
+  /** Whether this invoice already has a recurring schedule. */
+  hasSchedule: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export function InvoiceEditor({
   initialShareToken,
   initialPaymentLink,
   emailEnabled,
+  hasSchedule,
 }: Props) {
   const [invoice, setInvoice] = useState<Invoice>(initialDocument);
   const [status, setStatus] = useState<InvoiceStatus>(initialStatus);
@@ -326,6 +329,7 @@ export function InvoiceEditor({
         id={id}
         defaultTermsDays={termsDaysFrom(invoice.issueDate, invoice.dueDate)}
         emailEnabled={emailEnabled}
+        hasSchedule={hasSchedule}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">

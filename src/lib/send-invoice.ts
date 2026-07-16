@@ -76,11 +76,26 @@ export async function sendInvoiceEmailFlow(
     };
   }
 
-  await logSend(userId, invoice.id, recipient, providerId);
-  // draft → sent only; re-sending an already-sent or paid invoice delivers
-  // again but moves nothing.
-  if (invoice.status === "draft") {
-    await setInvoiceStatus(userId, invoiceId, "sent");
+  // Past this line the provider has accepted the email: it is going to arrive,
+  // and nothing that fails now can un-send it. So the bookkeeping gets its own
+  // catch and the send is still reported as the success it was.
+  //
+  // Reporting a delivered email as a failure is the worse bug it looks like a
+  // fix for: the user reads "nothing was sent", presses Send again, and their
+  // client gets the invoice twice — while the first send sits unlogged, outside
+  // the audit trail and uncounted against the cap.
+  try {
+    await logSend(userId, invoice.id, recipient, providerId);
+    // draft → sent only; re-sending an already-sent or paid invoice delivers
+    // again but moves nothing.
+    if (invoice.status === "draft") {
+      await setInvoiceStatus(userId, invoiceId, "sent");
+    }
+  } catch (error) {
+    console.error(
+      `Invoice ${invoiceId} was emailed to ${recipient} (provider id ${providerId}) but recording it failed:`,
+      error,
+    );
   }
 
   return { ok: true, token, to: recipient };

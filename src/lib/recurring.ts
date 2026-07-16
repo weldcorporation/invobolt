@@ -123,10 +123,23 @@ export async function generateDueInvoices(
         // Best-effort compensation: put the claim back so the period is
         // retried next run instead of silently skipped. Guarded on the
         // advanced value so a run that raced us is never rewound.
-        await getDb()
-          .update(schedules)
-          .set({ nextIssueDate: issueDate, updatedAt: new Date() })
-          .where(scheduleClaim(schedule.id, advanced));
+        //
+        // Best-effort means it gets its own catch. This runs *because* a write
+        // just failed, so the database is exactly where a second failure is
+        // plausible — and an unguarded throw here would escape the per-schedule
+        // boundary and abandon every other due schedule in the run over one bad
+        // row. Losing this period is the lesser failure, and it is logged.
+        try {
+          await getDb()
+            .update(schedules)
+            .set({ nextIssueDate: issueDate, updatedAt: new Date() })
+            .where(scheduleClaim(schedule.id, advanced));
+        } catch (rewindError) {
+          console.error(
+            `Rewind failed for schedule ${schedule.id}; the ${issueDate} period is skipped:`,
+            rewindError,
+          );
+        }
         continue;
       }
       summary.generated++;

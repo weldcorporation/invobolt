@@ -4,6 +4,7 @@ import { isEmailEnabled } from "@/lib/email";
 import { getInvoice } from "@/lib/invoices";
 import { listClients } from "@/lib/clients";
 import { listItems } from "@/lib/items";
+import { scheduleForInvoice } from "@/lib/schedules";
 import { todayIso } from "@/lib/status";
 import { InvoiceEditor } from "./InvoiceEditor";
 
@@ -22,10 +23,11 @@ export default async function EditInvoicePage({
   const { id } = await params;
   const userId = await requireUserId();
 
-  const [invoice, savedClients, savedItems] = await Promise.all([
+  const [invoice, savedClients, savedItems, schedule] = await Promise.all([
     getInvoice(userId, id),
     listClients(userId),
     listItems(userId),
+    scheduleForInvoice(userId, id),
   ]);
   if (!invoice) notFound();
 
@@ -39,6 +41,7 @@ export default async function EditInvoicePage({
       initialShareToken={invoice.shareToken}
       initialPaymentLink={invoice.paymentLinkUrl}
       emailEnabled={isEmailEnabled()}
+      hasSchedule={schedule !== null}
       // Resolved on the server and passed down so the derived `overdue` badge
       // renders identically on both sides of hydration — reading the clock in
       // the client component would risk a mismatch.

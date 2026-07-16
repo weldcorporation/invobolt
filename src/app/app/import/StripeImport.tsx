@@ -31,28 +31,72 @@ export function StripeImport({ hasServerKey, savedItems }: Props) {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const onFetch = async () => {
+  const more = preview
+    ? preview.customersCursor !== null || preview.itemsCursor !== null
+    : false;
+
+  /**
+   * Fetch a batch. `cursors` resumes where the last batch stopped; omitting
+   * them starts over.
+   *
+   * The key is handed to the action and dropped from state in the same breath.
+   * It is needed to *read* from Stripe and nothing else — importing the rows
+   * afterwards never sees it — so holding it for the page's lifetime would be
+   * keeping a credential we have no further use for. A next batch asks for it
+   * again, which makes every read of someone's Stripe account a deliberate act.
+   */
+  const fetchBatch = async (cursors?: {
+    customersAfter: string | null;
+    itemsAfter: string | null;
+  }) => {
+    const submitted = key;
+    setKey("");
     setFetching(true);
     setError(null);
     setNote(null);
     try {
-      const result = await previewStripeAction(key);
+      const result = await previewStripeAction(submitted, cursors);
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      setPreview(result);
-      // Preselect everything: the common case is "bring my Stripe over".
-      setPickedCustomers(
-        new Set(result.customers.map((c) => c.stripeCustomerId)),
+      setPreview((current) =>
+        cursors && current
+          ? {
+              // Appending, not replacing: the earlier batch is still on screen
+              // and may still be selected.
+              customers: [...current.customers, ...result.customers],
+              items: [...current.items, ...result.items],
+              customersCursor: result.customersCursor,
+              itemsCursor: result.itemsCursor,
+            }
+          : result,
       );
-      setPickedItems(new Set(result.items.map((i) => i.stripePriceId)));
+      // Preselect what just arrived: the common case is "bring my Stripe over".
+      setPickedCustomers((picked) => {
+        const next = cursors ? new Set(picked) : new Set<string>();
+        for (const c of result.customers) next.add(c.stripeCustomerId);
+        return next;
+      });
+      setPickedItems((picked) => {
+        const next = cursors ? new Set(picked) : new Set<string>();
+        for (const i of result.items) next.add(i.stripePriceId);
+        return next;
+      });
     } catch {
       setError("Couldn't reach the server — nothing was fetched.");
     } finally {
       setFetching(false);
     }
   };
+
+  const onFetch = () => fetchBatch();
+
+  const onFetchMore = () =>
+    fetchBatch({
+      customersAfter: preview?.customersCursor ?? null,
+      itemsAfter: preview?.itemsCursor ?? null,
+    });
 
   const toggle = (set: Set<string>, id: string): Set<string> => {
     const next = new Set(set);
@@ -73,6 +117,13 @@ export function StripeImport({ hasServerKey, savedItems }: Props) {
       if (result.ok) {
         setNote(
           `Imported ${result.imported} ${result.imported === 1 ? "client" : "clients"}.`,
+        );
+        // A skipped customer is not an error, but it must not pass silently:
+        // the user asked for it and did not get it.
+        setError(
+          result.skipped.length > 0
+            ? `Skipped ${result.skipped.join(", ")} — you already have a different client under that name. Rename one of them and import again.`
+            : null,
         );
       } else setError(result.error);
     } catch {
@@ -168,11 +219,22 @@ export function StripeImport({ hasServerKey, savedItems }: Props) {
 
       {preview && (
         <>
-          {preview.truncated && (
-            <p className="text-xs font-medium text-neutral-500">
-              Stripe returned more rows than one import handles — the first 500
-              of each are shown. Run the import again for the rest.
-            </p>
+          {more && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+              <p className="text-xs text-neutral-500">
+                Stripe has more rows than one batch takes. Import these, then
+                paste your key again to fetch the next batch — it picks up where
+                this one stopped.
+              </p>
+              <button
+                type="button"
+                disabled={fetching || (!key.trim() && !hasServerKey)}
+                onClick={() => void onFetchMore()}
+                className="ml-auto shrink-0 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              >
+                {fetching ? "…" : "Fetch the next batch"}
+              </button>
+            </div>
           )}
 
           <section className="space-y-2">

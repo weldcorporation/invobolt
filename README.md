@@ -60,8 +60,11 @@ Stripe, and generate recurring invoices on a schedule.
 Workspace mode mounts only when `WORKSPACE_ENABLED=true` (see
 [`.env.example`](./.env.example)); without it the app is exactly the
 instant-mode build, and `/` never reads a cookie or touches a database either way.
-The v0.3 features gate the same way on their own env vars — no Resend key means
-no Send button, no `CRON_SECRET` means no cron endpoint.
+Two of the v0.3 features want configuration of their own on top: email needs
+`EMAIL_FROM` and `RESEND_API_KEY` (without them, no Send button), and recurring
+generation needs `CRON_SECRET` (without it, no cron endpoint). "Pay now" links
+need nothing — the sender pastes a URL — and Stripe import asks for a key per
+import rather than reading one from the environment.
 
 ## Quick start
 

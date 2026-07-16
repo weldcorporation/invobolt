@@ -18,6 +18,7 @@ import { isParty, validateClientParty } from "@/lib/party";
 import {
   fetchStripeCustomers,
   fetchStripeProducts,
+  isStripeCursor,
   isStripeKeyShape,
   serverStripeKey,
   type ImportedCustomer,
@@ -37,8 +38,13 @@ const MAX_UNIT_PRICE_CENTS = 100_000_000;
 export type StripePreview = {
   customers: ImportedCustomer[];
   items: ImportedItem[];
-  /** True when Stripe had more rows than the page cap — said, not hidden. */
-  truncated: boolean;
+  /**
+   * Where to resume, per list, when Stripe had more rows than one batch takes.
+   * Null means that list is exhausted. Handing these back fetches the next
+   * batch — the cap is a batch size, not a ceiling.
+   */
+  customersCursor: string | null;
+  itemsCursor: string | null;
 };
 
 export type PreviewResult =
@@ -46,16 +52,31 @@ export type PreviewResult =
   | { ok: false; error: string };
 
 /**
- * Read customers and products from Stripe with the pasted key (or the
- * self-hoster's env-configured one when the field is left empty). Reads only;
- * nothing is written until the user picks rows and confirms the import.
+ * Read a batch of customers and products from Stripe with the pasted key (or
+ * the self-hoster's env-configured one when the field is left empty). Reads
+ * only; nothing is written until the user picks rows and confirms the import.
+ *
+ * The cursors round-trip through the browser, so they come back untrusted and
+ * are shape-checked before they go anywhere near a Stripe URL.
  */
 export async function previewStripeAction(
   key: unknown,
+  cursors?: unknown,
 ): Promise<PreviewResult> {
   await requireUserId();
 
   if (typeof key !== "string") return { ok: false, error: "Paste a key." };
+
+  const requested = (cursors ?? {}) as {
+    customersAfter?: unknown;
+    itemsAfter?: unknown;
+  };
+  const customersAfter = isStripeCursor(requested.customersAfter)
+    ? requested.customersAfter
+    : null;
+  const itemsAfter = isStripeCursor(requested.itemsAfter)
+    ? requested.itemsAfter
+    : null;
 
   const pasted = key.trim();
   const resolved = pasted ? pasted : serverStripeKey();
@@ -74,14 +95,15 @@ export async function previewStripeAction(
 
   try {
     const [customers, products] = await Promise.all([
-      fetchStripeCustomers(resolved),
-      fetchStripeProducts(resolved),
+      fetchStripeCustomers(resolved, customersAfter),
+      fetchStripeProducts(resolved, itemsAfter),
     ]);
     return {
       ok: true,
       customers: customers.customers,
       items: products.items,
-      truncated: customers.truncated || products.truncated,
+      customersCursor: customers.nextCursor,
+      itemsCursor: products.nextCursor,
     };
   } catch (error) {
     return {
@@ -92,7 +114,7 @@ export async function previewStripeAction(
 }
 
 export type ImportResult =
-  | { ok: true; imported: number }
+  | { ok: true; imported: number; skipped: string[] }
   | { ok: false; error: string };
 
 /**
@@ -135,13 +157,26 @@ export async function importStripeClientsAction(
     });
   }
 
+  // Rows are written one at a time rather than in one transaction: the Neon
+  // HTTP driver has no interactive transactions, and a batch cannot express
+  // the per-row name/Stripe-id conflict resolution `importStripeClient` does.
+  // A partial import is safe to leave: every write is an upsert keyed on the
+  // Stripe id, so re-running finishes the job rather than duplicating it.
+  let imported = 0;
+  const skipped: string[] = [];
   for (const row of rows) {
-    await importStripeClient(userId, row.stripeCustomerId, row.party);
+    const outcome = await importStripeClient(
+      userId,
+      row.stripeCustomerId,
+      row.party,
+    );
+    if (outcome === "imported") imported++;
+    else skipped.push(row.party.name);
   }
 
   revalidatePath("/app/clients");
   revalidatePath("/app/import");
-  return { ok: true, imported: rows.length };
+  return { ok: true, imported, skipped };
 }
 
 /** Write the selected products as saved items. Same narrowing discipline. */
@@ -186,12 +221,14 @@ export async function importStripeItemsAction(
     });
   }
 
+  // Same one-at-a-time reasoning as the clients import above; the upsert is
+  // keyed on the Stripe price id, so re-running is safe.
   for (const row of rows) {
     await importStripeItem(userId, row);
   }
 
   revalidatePath("/app/import");
-  return { ok: true, imported: rows.length };
+  return { ok: true, imported: rows.length, skipped: [] };
 }
 
 export type DeleteResult = { ok: true } | { ok: false; error: string };

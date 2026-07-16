@@ -10,6 +10,12 @@ interface Props {
   /** Days between the invoice's issue and due date, as the terms default. */
   defaultTermsDays: number;
   emailEnabled: boolean;
+  /**
+   * Whether this invoice already has a schedule, per the server on this load.
+   * The server refuses a second one regardless (a unique index sees to it);
+   * this is so the UI doesn't offer what would be refused.
+   */
+  hasSchedule: boolean;
 }
 
 /**
@@ -17,7 +23,12 @@ interface Props {
  * default — most invoices are one-offs — and creation is one explicit click
  * after choosing the cadence.
  */
-export function RecurringControls({ id, defaultTermsDays, emailEnabled }: Props) {
+export function RecurringControls({
+  id,
+  defaultTermsDays,
+  emailEnabled,
+  hasSchedule,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [termsDays, setTermsDays] = useState(defaultTermsDays);
@@ -25,6 +36,8 @@ export function RecurringControls({ id, defaultTermsDays, emailEnabled }: Props)
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const scheduled = hasSchedule || created;
 
   const onCreate = async () => {
     setBusy(true);
@@ -103,16 +116,17 @@ export function RecurringControls({ id, defaultTermsDays, emailEnabled }: Props)
       ) : (
         <>
           <span className="text-xs text-neutral-500">
-            {created ? (
+            {scheduled ? (
               <>
-                ✓ Schedule created —{" "}
+                {created ? "✓ Schedule created — " : "This invoice recurs. "}
                 <Link
                   href="/app/recurring"
                   className="underline hover:text-neutral-600"
                 >
-                  manage it
+                  Manage it
                 </Link>
-                . Future drafts copy this invoice as it is now.
+                . Future drafts copy this invoice as it was when the schedule
+                was made.
               </>
             ) : (
               <>
@@ -121,7 +135,7 @@ export function RecurringControls({ id, defaultTermsDays, emailEnabled }: Props)
               </>
             )}
           </span>
-          {!created && (
+          {!scheduled && (
             <button
               type="button"
               onClick={() => setOpen(true)}

@@ -26,11 +26,29 @@ const STRIPE_API = "https://api.stripe.com/v1";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 5;
 
+/**
+ * How long to wait on Stripe before giving up. Same reasoning as the email
+ * client's bound: a stalled connection otherwise holds the Server Action open
+ * until the platform kills it, and the user just watches a spinner.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
 const KEY_SHAPE = /^rk_(live|test)_[A-Za-z0-9]+$/;
+
+/** Stripe object ids — what a pagination cursor is. */
+const CURSOR_SHAPE = /^[A-Za-z0-9_]{1,255}$/;
 
 /** Restricted-key shape only — see the module comment for why sk_ is refused. */
 export function isStripeKeyShape(value: string): boolean {
   return KEY_SHAPE.test(value) && value.length <= 200;
+}
+
+/**
+ * Whether a value could be a cursor we handed out. Cursors round-trip through
+ * the browser between batches, so they come back as untrusted input.
+ */
+export function isStripeCursor(value: unknown): value is string {
+  return typeof value === "string" && CURSOR_SHAPE.test(value);
 }
 
 /** The self-hoster's env-configured key, if present and shaped like one. */
@@ -47,17 +65,25 @@ interface StripePage<T> {
 }
 
 /**
- * Fetch every page of a Stripe list endpoint, up to the page cap.
- * Throws with a user-safe message on any non-2xx; the response detail goes to
- * the server log (it can describe the key's permissions — not for clients).
+ * Fetch up to `MAX_PAGES` pages of a Stripe list endpoint, starting after
+ * `after`. Throws with a user-safe message on any non-2xx; the response detail
+ * goes to the server log (it can describe the key's permissions — not for
+ * clients).
+ *
+ * `nextCursor` is non-null exactly when Stripe has more rows than this batch
+ * took. It is the caller's way back in: handing it to the next call resumes
+ * where this one stopped. Without it the cap would not be a batch size but a
+ * ceiling — every run would re-fetch the same first rows and an account with
+ * more than `PAGE_SIZE * MAX_PAGES` records could never import the rest.
  */
-async function listAll<T extends { id: string }>(
+async function listBatch<T extends { id: string }>(
   key: string,
   path: string,
   params: Record<string, string>,
-): Promise<{ rows: T[]; truncated: boolean }> {
+  after: string | null,
+): Promise<{ rows: T[]; nextCursor: string | null }> {
   const rows: T[] = [];
-  let startingAfter: string | null = null;
+  let startingAfter: string | null = after;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const search = new URLSearchParams({
@@ -66,8 +92,11 @@ async function listAll<T extends { id: string }>(
     });
     if (startingAfter) search.set("starting_after", startingAfter);
 
+    // An abort throws, which is already the failure path below — a timeout
+    // needs no special casing, only a bound.
     const response = await fetch(`${STRIPE_API}${path}?${search}`, {
       headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -87,12 +116,15 @@ async function listAll<T extends { id: string }>(
 
     const body = (await response.json()) as StripePage<T>;
     rows.push(...body.data);
-    if (!body.has_more) return { rows, truncated: false };
+    if (!body.has_more) return { rows, nextCursor: null };
+
+    // The cursor is the last *raw* id, taken before any mapping drops rows —
+    // resuming after a row we skipped would silently lose everything between.
     startingAfter = body.data[body.data.length - 1]?.id ?? null;
-    if (!startingAfter) return { rows, truncated: false };
+    if (!startingAfter) return { rows, nextCursor: null };
   }
 
-  return { rows, truncated: true };
+  return { rows, nextCursor: startingAfter };
 }
 
 /* -------------------------------------------------------------- customers */
@@ -151,11 +183,13 @@ export function partyFromStripeCustomer(
 
 export async function fetchStripeCustomers(
   key: string,
-): Promise<{ customers: ImportedCustomer[]; truncated: boolean }> {
-  const { rows, truncated } = await listAll<StripeCustomer>(
+  after: string | null = null,
+): Promise<{ customers: ImportedCustomer[]; nextCursor: string | null }> {
+  const { rows, nextCursor } = await listBatch<StripeCustomer>(
     key,
     "/customers",
     {},
+    after,
   );
 
   const customers: ImportedCustomer[] = [];
@@ -163,7 +197,7 @@ export async function fetchStripeCustomers(
     const party = partyFromStripeCustomer(row);
     if (party) customers.push({ stripeCustomerId: row.id, party });
   }
-  return { customers, truncated };
+  return { customers, nextCursor };
 }
 
 /* --------------------------------------------------------------- products */
@@ -213,16 +247,19 @@ export function itemFromStripeProduct(
 
 export async function fetchStripeProducts(
   key: string,
-): Promise<{ items: ImportedItem[]; truncated: boolean }> {
-  const { rows, truncated } = await listAll<StripeProduct>(key, "/products", {
-    active: "true",
-    "expand[]": "data.default_price",
-  });
+  after: string | null = null,
+): Promise<{ items: ImportedItem[]; nextCursor: string | null }> {
+  const { rows, nextCursor } = await listBatch<StripeProduct>(
+    key,
+    "/products",
+    { active: "true", "expand[]": "data.default_price" },
+    after,
+  );
 
   const items: ImportedItem[] = [];
   for (const row of rows) {
     const item = itemFromStripeProduct(row);
     if (item) items.push(item);
   }
-  return { items, truncated };
+  return { items, nextCursor };
 }
