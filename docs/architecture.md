@@ -1,8 +1,10 @@
 # Architecture
 
-A short tour of how Invobolt v0.1 is put together. The guiding constraint is
-**instant mode is local-first**: the generator runs entirely in the browser and
-sends nothing over the network.
+A short tour of Invobolt's instant-mode core — the shared foundation both
+surfaces build on. The guiding constraint is **instant mode is local-first**:
+the generator runs entirely in the browser and sends nothing over the network.
+The workspace mode added in v0.2 is documented separately in
+[workspace-mode-design.md](./workspace-mode-design.md).
 
 ## Data flow
 
@@ -68,9 +70,17 @@ business profile (name, address, VAT number, defaults) to `localStorage`, on the
 user's own device. It's loaded once after mount to avoid SSR hydration
 mismatches. Nothing else is stored, and nothing is uploaded.
 
+## Workspace mode (v0.2)
+
+The optional workspace mode lives under `/app/**`: magic-link accounts,
+server-side invoice persistence, status tracking, saved clients, and shareable
+read-only invoice pages. It reuses this exact core — the `Invoice` object,
+`calc.ts`, and the templates render unchanged on both surfaces — and it never
+touches `/`, so everything above stays true: instant mode remains local-first
+and login-free. Design and as-built notes:
+[workspace-mode-design.md](./workspace-mode-design.md).
+
 ## What's intentionally not here yet
 
-Workspace mode (magic-link auth + Neon Postgres), Stripe import, recurring
-invoices, and email delivery are all planned for later versions and deliberately
-excluded from v0.1 to keep "no login" strictly true. See the
-[roadmap](../README.md#roadmap).
+Stripe import, "Pay now" links, recurring invoices, and email delivery are
+planned for v0.3. See the [roadmap](../README.md#roadmap).

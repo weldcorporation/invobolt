@@ -24,10 +24,14 @@ gives away the fastest possible invoice generator instead:
 - **EU-friendly by default** — first-class VAT (multiple rates, reverse charge), multi-currency, EN/NL.
 - **Open & forkable** — AGPL-3.0, a boring familiar stack, clean contribution surfaces.
 
-This repository is the **v0.1 instant-mode generator**. Workspace mode, Stripe
-import, and recurring invoices are on the [roadmap](#roadmap).
+This repository contains the **instant-mode generator** (v0.1) and the optional
+**workspace mode** (v0.2): sign in with a magic link to keep invoices across
+devices, track their status, save clients, and hand out a read-only invoice
+link. Stripe import and recurring invoices are on the [roadmap](#roadmap).
 
-## Features (v0.1)
+## Features
+
+### Instant mode (no account, nothing leaves your browser)
 
 - ✍️ Invoice form with live, WYSIWYG preview
 - 🧾 Three templates — **Modern**, **Classic**, **Minimal** — with tabular figures
@@ -37,6 +41,19 @@ import, and recurring invoices are on the [roadmap](#roadmap).
 - 🎨 Accent colour + optional logo (kept local as a data URL)
 - 💾 Business-profile memory in `localStorage` — remembered only on your device
 - 🖨️ PDF export via the browser's native print-to-PDF (vector text, perfect fidelity)
+
+### Workspace mode (optional, off by default when self-hosting)
+
+- 🔑 Passwordless sign-in via magic link (Neon Auth) — no passwords, ever
+- ☁️ Invoices persisted server-side, with debounced autosave
+- 📊 Status tracking: draft → sent → paid (+ void), overdue derived from the due date
+- 👥 Saved clients, reusable across invoices
+- 🔗 Shareable read-only invoice page at an unguessable, revocable URL
+- 📥 One-click import of your local business profile on first sign-in
+
+Workspace mode mounts only when `WORKSPACE_ENABLED=true` (see
+[`.env.example`](./.env.example)); without it the app is exactly the
+instant-mode build, and `/` never reads a cookie or touches a database either way.
 
 ## Quick start
 
@@ -57,6 +74,8 @@ pnpm run dev
 | `pnpm run typecheck` | TypeScript, no emit |
 | `pnpm test` | Run the unit tests (Vitest) |
 | `pnpm run test:watch` | Vitest in watch mode |
+| `pnpm run db:generate` | Regenerate Drizzle migrations after a schema change |
+| `pnpm run db:migrate` | Apply migrations to `DATABASE_URL` (workspace mode) |
 
 ## How PDF export works
 
@@ -73,8 +92,9 @@ extra dependencies.
 - Local-first: `localStorage` today (IndexedDB / installable PWA planned)
 - Hosted on **Vercel**; self-hostable
 
-Later tiers add **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
-(Managed Better Auth) for the optional workspace mode — see the roadmap.
+Workspace mode adds **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
+(Managed Better Auth) — both read only behind the `WORKSPACE_ENABLED` flag, so
+instant mode still runs with zero env vars.
 
 ## Project structure
 
@@ -82,20 +102,27 @@ Later tiers add **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
 src/
 ├─ app/
 │  ├─ layout.tsx        # document shell + metadata
-│  ├─ page.tsx          # the generator (state owner)
-│  └─ globals.css       # styles + print stylesheet
+│  ├─ page.tsx          # instant mode: the generator (state owner)
+│  ├─ globals.css       # styles + print stylesheet
+│  ├─ app/              # workspace mode: invoice list, editor, clients
+│  ├─ auth/             # magic-link sign-in + callback
+│  ├─ i/[token]/        # public read-only shared invoice
+│  └─ api/auth/         # Neon Auth proxy route
 ├─ components/
-│  ├─ InvoiceForm.tsx   # the editing surface
-│  ├─ InvoiceDocument.tsx  # the 3 printable templates
+│  ├─ InvoiceForm.tsx   # the editing surface (both modes)
+│  ├─ InvoiceDocument.tsx  # the 3 printable templates (both modes)
 │  └─ ui.tsx            # small form primitives
-└─ lib/
-   ├─ types.ts          # Invoice / Party / LineItem
-   ├─ calc.ts           # subtotal, discount, per-rate VAT, total
-   ├─ currency.ts       # currency list + Intl formatting
-   ├─ format.ts         # locale-aware dates
-   ├─ i18n.ts           # EN / NL dictionaries
-   ├─ sample.ts         # starter invoice
-   └─ storage.ts        # local business-profile persistence
+├─ lib/
+│  ├─ types.ts          # Invoice / Party / LineItem
+│  ├─ calc.ts           # subtotal, discount, per-rate VAT, total
+│  ├─ currency.ts       # currency list + Intl formatting
+│  ├─ format.ts         # locale-aware dates
+│  ├─ i18n.ts           # EN / NL dictionaries
+│  ├─ sample.ts         # starter invoice
+│  ├─ storage.ts        # local business-profile persistence
+│  ├─ db/               # Drizzle schema + Neon client (workspace)
+│  └─ …                 # workspace data access (invoices, clients, status, …)
+└─ proxy.ts             # redirects signed-out /app/** navigations to sign-in
 ```
 
 See [`docs/architecture.md`](./docs/architecture.md) for a deeper tour, including
@@ -103,9 +130,9 @@ how to add a template, a locale, or a currency.
 
 ## Roadmap
 
-- **v0.1** *(this repo)* — instant-mode generator, live preview, VAT + multi-currency, PDF export, 3 templates, business-profile memory.
-- **v0.2** — workspace mode (magic link + Neon), status tracking, saved clients, shareable invoice page. → [design proposal](./docs/workspace-mode-design.md)
-- **v0.3** — Stripe import (customers/products) + "Pay now" links, recurring invoices, email delivery.
+- **v0.1** ✅ — instant-mode generator, live preview, VAT + multi-currency, PDF export, 3 templates, business-profile memory.
+- **v0.2** ✅ — workspace mode (magic link + Neon), status tracking, saved clients, shareable invoice page. → [design & as-built notes](./docs/workspace-mode-design.md)
+- **v0.3** *(next)* — Stripe import (customers/products) + "Pay now" links, recurring invoices, email delivery.
 - **v1.0** — polished templates, more locales, self-host Docker image.
 
 ## Contributing
