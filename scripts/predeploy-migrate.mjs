@@ -6,6 +6,12 @@
  * before that deployment ever serves a request. Vercel finishes the build
  * before routing traffic to it, so code can't go live ahead of its own tables.
  *
+ * Wired up by `buildCommand` in vercel.json, deliberately — *not* by the
+ * `vercel-build` naming convention. For a Next.js framework preset Vercel runs
+ * the `build` script when one exists (ours does), so a `vercel-build` script on
+ * its own would never execute and every deploy would silently skip migrations.
+ * vercel.json can't say this itself, because JSON has nowhere to put it.
+ *
  * The flag check must stay identical to `isWorkspaceEnabled()` in
  * src/lib/workspace.ts (`=== "true"`, not truthiness). If the two ever disagree,
  * the build and the app disagree about whether workspace mode is on — which
