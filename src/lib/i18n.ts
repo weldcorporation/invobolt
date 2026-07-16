@@ -122,6 +122,7 @@ export interface UIStrings {
   logo: string;
   removeLogo: string;
   newInvoiceConfirm: string;
+  payNow: string;
 }
 
 const uiEn: UIStrings = {
@@ -156,6 +157,7 @@ const uiEn: UIStrings = {
   logo: "Logo",
   removeLogo: "Remove",
   newInvoiceConfirm: "Start a new invoice? Unsaved details will be cleared.",
+  payNow: "Pay now",
 };
 
 const uiNl: UIStrings = {
@@ -190,6 +192,7 @@ const uiNl: UIStrings = {
   logo: "Logo",
   removeLogo: "Verwijderen",
   newInvoiceConfirm: "Nieuwe factuur starten? Niet-opgeslagen gegevens worden gewist.",
+  payNow: "Nu betalen",
 };
 
 export const UI: Record<Locale, UIStrings> = { en: uiEn, nl: uiNl };

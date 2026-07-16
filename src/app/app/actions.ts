@@ -9,6 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/session";
 import { validateInvoice } from "@/lib/invoice-row";
@@ -17,9 +18,17 @@ import {
   deleteInvoice,
   saveInvoice,
   setInvoiceStatus,
+  setPaymentLink,
   shareInvoice,
   unshareInvoice,
 } from "@/lib/invoices";
+import { isEmailEnabled } from "@/lib/email";
+import { originFromHeaders } from "@/lib/origin";
+import {
+  normalizePaymentLink,
+  validatePaymentLink,
+} from "@/lib/payment-link";
+import { sendInvoiceEmailFlow } from "@/lib/send-invoice";
 import {
   deleteClient,
   updateClient,
@@ -198,6 +207,70 @@ export async function unshareInvoiceAction(id: string): Promise<SaveResult> {
 
   const revoked = await unshareInvoice(userId, id);
   if (!revoked) return { ok: false, error: "This invoice no longer exists." };
+
+  revalidatePath(`/app/invoices/${id}`);
+  return { ok: true };
+}
+
+export type SendResult =
+  | { ok: true; token: string; to: string }
+  | { ok: false; error: string };
+
+/**
+ * Email an invoice to its recipient. The mechanics — share-link reuse, the
+ * daily cap, the draft → sent transition — live in `sendInvoiceEmailFlow`,
+ * shared with the recurring generator's auto-send; this action contributes
+ * what only a request has: the session, and the deployment's own origin.
+ */
+export async function sendInvoiceAction(
+  id: string,
+  to: unknown,
+): Promise<SendResult> {
+  const userId = await requireUserId();
+
+  if (!isEmailEnabled()) {
+    return { ok: false, error: "Email delivery isn't configured here." };
+  }
+  if (typeof to !== "string") {
+    return { ok: false, error: "That doesn't look like an email address." };
+  }
+
+  // The share URL must be absolute; refuse to send rather than guess if the
+  // deployment's own address can't be derived (see lib/origin.ts).
+  const origin = originFromHeaders(await headers());
+  if (!origin) {
+    return { ok: false, error: "Couldn't determine this site's address." };
+  }
+
+  const outcome = await sendInvoiceEmailFlow(userId, id, to, origin);
+  if (!outcome.ok) return outcome;
+
+  revalidatePath("/app");
+  revalidatePath(`/app/invoices/${id}`);
+  return outcome;
+}
+
+/**
+ * Set or clear the invoice's "Pay now" link. Validated server-side because
+ * whatever is stored is later served as an `href` to the recipient — the
+ * client-side check is a courtesy, this one is the boundary.
+ */
+export async function setPaymentLinkAction(
+  id: string,
+  value: unknown,
+): Promise<SaveResult> {
+  const userId = await requireUserId();
+
+  if (typeof value !== "string") return { ok: false, error: "Not a link." };
+
+  const url = normalizePaymentLink(value);
+  if (url) {
+    const problems = validatePaymentLink(url);
+    if (problems.length > 0) return { ok: false, error: problems[0] };
+  }
+
+  const set = await setPaymentLink(userId, id, url);
+  if (!set) return { ok: false, error: "This invoice no longer exists." };
 
   revalidatePath(`/app/invoices/${id}`);
   return { ok: true };

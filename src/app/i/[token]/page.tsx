@@ -66,7 +66,22 @@ export default async function SharedInvoicePage({
           <img src="/icon.svg" alt="" width={20} height={20} />
           <span className="font-medium">Invobolt</span>
         </Link>
-        <PrintButton label={s.exportPdf} />
+        <div className="no-print flex items-center gap-2">
+          {/* Sender-provided and validated as https-only on write (see
+              lib/payment-link.ts); payment happens on the sender's provider,
+              never on this origin. */}
+          {shared.paymentLinkUrl && (
+            <a
+              href={shared.paymentLinkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-paid px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            >
+              {s.payNow} ↗
+            </a>
+          )}
+          <PrintButton label={s.exportPdf} />
+        </div>
       </div>
 
       <div className="print-root mx-auto w-full max-w-[820px]">

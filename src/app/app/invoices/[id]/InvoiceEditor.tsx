@@ -22,6 +22,8 @@ import {
 } from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
 import { ClientPicker } from "./ClientPicker";
+import { PaymentLinkControls } from "./PaymentLinkControls";
+import { SendControls } from "./SendControls";
 import { ShareControls } from "./ShareControls";
 
 /**
@@ -45,6 +47,9 @@ interface Props {
   today: string;
   savedClients: SavedClient[];
   initialShareToken: string | null;
+  initialPaymentLink: string | null;
+  /** Whether this deployment can send email (see `isEmailEnabled`). */
+  emailEnabled: boolean;
 }
 
 /**
@@ -62,6 +67,8 @@ export function InvoiceEditor({
   today,
   savedClients,
   initialShareToken,
+  initialPaymentLink,
+  emailEnabled,
 }: Props) {
   const [invoice, setInvoice] = useState<Invoice>(initialDocument);
   const [status, setStatus] = useState<InvoiceStatus>(initialStatus);
@@ -264,6 +271,20 @@ export function InvoiceEditor({
       </div>
 
       <ShareControls id={id} initialToken={initialShareToken} />
+
+      <PaymentLinkControls id={id} initialUrl={initialPaymentLink} />
+
+      {/* Rendered only when the deployment can actually send — unconfigured
+          email means no Send button, not a broken one. */}
+      {emailEnabled && (
+        <SendControls
+          id={id}
+          defaultTo={invoice.client.email}
+          // The server moves draft → sent as part of the send; mirror it here
+          // without touching an invoice that was already sent or paid.
+          onSent={() => setStatus((s) => (s === "draft" ? "sent" : s))}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
         <div className="no-print">

@@ -90,6 +90,7 @@ export async function getInvoice(
   status: InvoiceStatus;
   document: Invoice;
   shareToken: string | null;
+  paymentLinkUrl: string | null;
 } | null> {
   if (!isUuid(id)) return null;
 
@@ -99,6 +100,7 @@ export async function getInvoice(
       status: invoices.status,
       document: invoices.document,
       shareToken: invoices.shareToken,
+      paymentLinkUrl: invoices.paymentLinkUrl,
     })
     .from(invoices)
     .where(ownedInvoice(userId, id))
@@ -116,11 +118,19 @@ export async function getInvoice(
  */
 export async function getSharedInvoice(
   token: string,
-): Promise<{ status: InvoiceStatus; document: Invoice } | null> {
+): Promise<{
+  status: InvoiceStatus;
+  document: Invoice;
+  paymentLinkUrl: string | null;
+} | null> {
   if (!isShareToken(token)) return null;
 
   const rows = await getDb()
-    .select({ status: invoices.status, document: invoices.document })
+    .select({
+      status: invoices.status,
+      document: invoices.document,
+      paymentLinkUrl: invoices.paymentLinkUrl,
+    })
     .from(invoices)
     .where(byShareToken(token))
     .limit(1);
@@ -303,6 +313,27 @@ export async function unshareInvoice(
     .returning({ id: invoices.id });
 
   return revoked.length > 0;
+}
+
+/**
+ * Set (or clear, with null) the invoice's "Pay now" link. Callers must
+ * validate first (see `validatePaymentLink`) — whatever lands here is served
+ * as an `href` to the recipient.
+ */
+export async function setPaymentLink(
+  userId: string,
+  id: string,
+  url: string | null,
+): Promise<boolean> {
+  if (!isUuid(id)) return false;
+
+  const updated = await getDb()
+    .update(invoices)
+    .set({ paymentLinkUrl: url, updatedAt: new Date() })
+    .where(ownedInvoice(userId, id))
+    .returning({ id: invoices.id });
+
+  return updated.length > 0;
 }
 
 /** Delete an invoice the user owns. Returns false if there was nothing to delete. */

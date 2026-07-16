@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
  * module that queries owner-scoped rows without appearing here is the gap this
  * is meant to catch, so keep it in step with `lib/`.
  */
-const REPOSITORIES = ["invoices.ts", "clients.ts", "profiles.ts"];
+const REPOSITORIES = ["invoices.ts", "clients.ts", "profiles.ts", "emails.ts"];
 
 /**
  * The exceptions, named one by one, with the reason each is safe.

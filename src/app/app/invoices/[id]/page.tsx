@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireUserId } from "@/lib/session";
+import { isEmailEnabled } from "@/lib/email";
 import { getInvoice } from "@/lib/invoices";
 import { listClients } from "@/lib/clients";
 import { todayIso } from "@/lib/status";
@@ -33,6 +34,8 @@ export default async function EditInvoicePage({
       initialDocument={invoice.document}
       savedClients={savedClients}
       initialShareToken={invoice.shareToken}
+      initialPaymentLink={invoice.paymentLinkUrl}
+      emailEnabled={isEmailEnabled()}
       // Resolved on the server and passed down so the derived `overdue` badge
       // renders identically on both sides of hydration — reading the clock in
       // the client component would risk a mismatch.

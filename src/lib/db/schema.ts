@@ -110,6 +110,11 @@ export const invoices = pgTable(
     totalCents: integer("total_cents").notNull(),
     document: jsonb("document").notNull().$type<Invoice>(),
     shareToken: text("share_token").unique(),
+    // A sender-provided https URL rendered as "Pay now" on /i/[token] and in
+    // the invoice email. A lifted column rather than a document field on
+    // purpose: it is a workspace affordance, and the shared `Invoice` type is
+    // instant mode's too (see docs/v0.3-design.md).
+    paymentLinkUrl: text("payment_link_url"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -123,6 +128,33 @@ export const invoices = pgTable(
   ],
 );
 
+/**
+ * One row per invoice email sent (v0.3). This is the audit trail *and* the
+ * send rate limiter: "how many emails did this user send in the last 24h" is
+ * one indexed count, which is why v0.2's objection to a limiter (serverless
+ * needs a shared store) doesn't apply — the shared store is the database the
+ * sends are already rows in.
+ *
+ * No FK to `invoices` on purpose: deleting an invoice must not erase the
+ * evidence it was emailed, nor refund the day's sending quota.
+ */
+export const invoiceEmails = pgTable(
+  "invoice_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    invoiceId: uuid("invoice_id").notNull(),
+    toEmail: text("to_email").notNull(),
+    /** The provider's message id (Resend), for tracing a delivery complaint. */
+    providerId: text("provider_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("invoice_emails_user_sent_idx").on(t.userId, t.sentAt)],
+);
+
 export type ClientRow = typeof clients.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
+export type InvoiceEmailRow = typeof invoiceEmails.$inferSelect;
