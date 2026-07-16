@@ -21,7 +21,11 @@ export default function SignInPage() {
     setError(null);
     const { error } = await authClient.signIn.magicLink({
       email,
-      callbackURL: "/app",
+      // /auth/callback, not /app: the emailed link comes back with a verifier
+      // that only a *client* can exchange for a session, and /app is a Server
+      // Component behind the proxy — it would bounce to sign-in before any
+      // client code ran. See src/app/auth/callback/page.tsx.
+      callbackURL: "/auth/callback",
     });
     if (error) {
       setError(error.message ?? "Something went wrong. Please try again.");

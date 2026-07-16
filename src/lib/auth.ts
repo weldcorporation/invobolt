@@ -27,25 +27,28 @@ export function getAuth(): NeonAuth {
     baseUrl,
     cookies: {
       secret,
-      // `lax`, not the SDK's `strict` default — and not a downgrade to make a
-      // bug go away. This value is what makes magic-link sign-in work at all.
+      // `lax`, not the SDK's `strict` default.
       //
-      // Requesting a link sets a challenge cookie (`…session_challange`) on this
-      // origin, via our /api/auth proxy, with this `sameSite`. The emailed link
-      // points at Neon, which verifies the token and redirects back to /app with
-      // a `neon_auth_session_verifier` query param. The proxy exchanges verifier
-      // + challenge cookie for the session — and needs *both*.
+      // This governs the session cookie our /api/auth proxy mints. `strict`
+      // withholds a cookie on *any* top-level navigation that began off-site, so
+      // following a link into /app from an email, a chat message, or another app
+      // would render logged-out despite a perfectly good session, and the proxy
+      // would bounce you to sign-in. `lax` sends it on top-level GET navigations
+      // — the case it exists for — and still withholds it on cross-site POSTs,
+      // so the CSRF protection that matters is intact. `SameSite=Lax` is what
+      // `docs/workspace-mode-design.md` specified from the start.
       //
-      // That return trip is a top-level navigation initiated from the mail
-      // client, i.e. off-site. Under `strict` the challenge cookie is withheld,
-      // the exchange never runs, and no session is ever minted — so the proxy
-      // bounces you to sign-in. The email arrives and the token is valid; you
-      // still land logged-out, with nothing failing loudly.
-      //
-      // `lax` sends it on top-level GET navigations, which is the case it exists
-      // for, and still withholds it on cross-site POSTs, so the CSRF protection
-      // that matters is intact. `docs/workspace-mode-design.md` specified
-      // `SameSite=Lax` from the start — the code just never passed it.
+      // What this does NOT do is make magic-link sign-in work; sign-in works
+      // under `strict` too. Two earlier attempts in this file claimed otherwise,
+      // in opposite directions, and both were wrong — so, measured against a
+      // live Neon instance: the sign-in request sets no cookie at all, and the
+      // emailed link is verified on Neon's origin, which redirects to our
+      // `callbackURL` with a `neon_auth_session_verifier` param and no cookie of
+      // any kind. The session is minted by the *client* exchanging that verifier
+      // (see src/app/auth/callback/page.tsx), over a same-origin fetch that no
+      // SameSite value affects. The SDK middleware does have a verifier exchange,
+      // but it also requires a `session_challange` cookie that only OAuth sets,
+      // so it never fires for magic link.
       sameSite: "lax",
     },
   });
