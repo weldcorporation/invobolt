@@ -1,11 +1,13 @@
-# v0.2 — Workspace mode (design)
+# v0.2 — Workspace mode (design & as-built notes)
 
-> Status: **proposed** · Target: v0.2 · Owner: TBD
+> Status: **shipped** in v0.2
 >
-> This is a design proposal, not shipped code. It scopes the work on the
+> This began as the design proposal for the work on the
 > [roadmap](../README.md#roadmap): *magic-link auth + Neon Postgres, status
-> tracking, saved clients, shareable invoice page.* Nothing here changes how
-> instant mode behaves.
+> tracking, saved clients, shareable invoice page.* All seven delivery steps
+> below have landed; the "as built" notes throughout record where the
+> implementation diverged from the original design and why. Nothing here
+> changed how instant mode behaves.
 
 ## The one non-negotiable
 
