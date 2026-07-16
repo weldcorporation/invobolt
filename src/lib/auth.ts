@@ -28,19 +28,24 @@ export function getAuth(): NeonAuth {
     cookies: {
       secret,
       // `lax`, not the SDK's `strict` default — and not a downgrade to make a
-      // bug go away.
+      // bug go away. This value is what makes magic-link sign-in work at all.
       //
-      // Clicking a magic link is a top-level navigation *initiated from your
-      // mail client*, i.e. cross-site. A `strict` cookie is withheld for the
-      // whole of that navigation chain, including the redirect to /app after
-      // the token is verified — so the session gets set and then not sent, and
-      // the proxy bounces you back to sign-in. Landing logged-out is exactly
-      // the symptom `strict` produces here.
+      // Requesting a link sets a challenge cookie (`…session_challange`) on this
+      // origin, via our /api/auth proxy, with this `sameSite`. The emailed link
+      // points at Neon, which verifies the token and redirects back to /app with
+      // a `neon_auth_session_verifier` query param. The proxy exchanges verifier
+      // + challenge cookie for the session — and needs *both*.
       //
-      // `lax` sends the cookie on top-level GET navigations only, which is the
-      // case it was designed for; it still withholds it on cross-site POSTs, so
-      // the CSRF protection that matters is intact. This is what
-      // `docs/workspace-mode-design.md` specified all along.
+      // That return trip is a top-level navigation initiated from the mail
+      // client, i.e. off-site. Under `strict` the challenge cookie is withheld,
+      // the exchange never runs, and no session is ever minted — so the proxy
+      // bounces you to sign-in. The email arrives and the token is valid; you
+      // still land logged-out, with nothing failing loudly.
+      //
+      // `lax` sends it on top-level GET navigations, which is the case it exists
+      // for, and still withholds it on cross-site POSTs, so the CSRF protection
+      // that matters is intact. `docs/workspace-mode-design.md` specified
+      // `SameSite=Lax` from the start — the code just never passed it.
       sameSite: "lax",
     },
   });

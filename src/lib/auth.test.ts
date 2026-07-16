@@ -5,9 +5,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  *
  * `sameSite: "lax"` looks like a weaker choice than the SDK's `strict` default,
  * so it is the kind of line a security pass "hardens" — and the breakage it
- * causes is silent and remote: sign-in still sends the email, the token still
- * verifies, the user just lands back on the login page. Nothing in the type
- * system or the build catches it. This test does, and says why.
+ * causes is silent and remote: the email still sends, the token still verifies,
+ * the user just lands back on the login page. Nothing in the type system or the
+ * build catches it. This test does, and says why.
  */
 const createNeonAuth = vi.fn((_config: unknown) => ({}) as never);
 
@@ -32,9 +32,10 @@ describe("getAuth", () => {
     const getAuth = await freshGetAuth();
     getAuth();
 
-    // Clicking a link in your mail client is a top-level cross-site navigation.
-    // `strict` withholds the session cookie for that whole navigation chain —
-    // including the post-verify redirect to /app — so the proxy sees no session.
+    // Returning from the emailed link is a top-level navigation started off-site,
+    // so `strict` withholds the challenge cookie the proxy must pair with the
+    // `neon_auth_session_verifier` param. The exchange never runs, no session is
+    // minted, and the proxy bounces the user to sign-in.
     expect(createNeonAuth).toHaveBeenCalledWith(
       expect.objectContaining({
         cookies: expect.objectContaining({ sameSite: "lax" }),
