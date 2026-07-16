@@ -15,11 +15,13 @@
  * only when we need the email/name for display.
  */
 
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
   timestamp,
   date,
+  doublePrecision,
   integer,
   jsonb,
   uuid,
@@ -70,6 +72,11 @@ export const clients = pgTable(
     name: text("name").notNull(),
     nameKey: text("name_key").notNull(),
     party: jsonb("party").notNull().$type<Party>(),
+    // Set by Stripe import (v0.3). The partial unique index makes a re-import
+    // an upsert keyed on the Stripe id, so a customer renamed in Stripe
+    // updates the same client instead of resurrecting the old name as a
+    // second row. Null for clients saved by hand.
+    stripeCustomerId: text("stripe_customer_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -80,6 +87,9 @@ export const clients = pgTable(
   (t) => [
     index("clients_user_id_idx").on(t.userId),
     uniqueIndex("clients_user_name_idx").on(t.userId, t.nameKey),
+    uniqueIndex("clients_user_stripe_idx")
+      .on(t.userId, t.stripeCustomerId)
+      .where(sql`${t.stripeCustomerId} is not null`),
   ],
 );
 
@@ -125,6 +135,43 @@ export const invoices = pgTable(
   (t) => [
     uniqueIndex("invoices_user_number_idx").on(t.userId, t.number),
     index("invoices_user_status_idx").on(t.userId, t.status),
+  ],
+);
+
+/**
+ * Saved line items (v0.3) — reusable descriptions with a unit price, born
+ * from Stripe product import. Prices are stored in minor units (Stripe's
+ * shape, and exact); the picker converts to the document's decimal form.
+ * `vatRate` is nullable because Stripe products don't carry one — the picker
+ * falls back to the form's default.
+ */
+export const items = pgTable(
+  "items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    description: text("description").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    /** ISO 4217, uppercase — compared against the invoice's currency on pick. */
+    currency: text("currency").notNull(),
+    vatRate: doublePrecision("vat_rate"),
+    stripeProductId: text("stripe_product_id"),
+    // The price id, not just the product id, keys the re-import upsert: a
+    // product whose price changed in Stripe is a *new* price object, and a
+    // new saved item is the honest representation of that.
+    stripePriceId: text("stripe_price_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("items_user_id_idx").on(t.userId),
+    uniqueIndex("items_user_price_idx")
+      .on(t.userId, t.stripePriceId)
+      .where(sql`${t.stripePriceId} is not null`),
   ],
 );
 

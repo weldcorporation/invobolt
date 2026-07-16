@@ -23,6 +23,11 @@ interface Props {
    * the form renders exactly as before.
    */
   clientPicker?: ReactNode;
+  /**
+   * Optional slot above the line items, for workspace mode's saved-item
+   * picker — same injection principle as `clientPicker`, and omitted on `/`.
+   */
+  itemPicker?: ReactNode;
 }
 
 const TEMPLATES: { id: TemplateId; label: string }[] = [
@@ -36,6 +41,7 @@ export function InvoiceForm({
   onChange,
   uiLocale,
   clientPicker,
+  itemPicker,
 }: Props) {
   const s = ui(uiLocale);
 
@@ -213,6 +219,7 @@ export function InvoiceForm({
 
       {/* Line items */}
       <Section title={s.lineItems}>
+        {itemPicker}
         <div className="space-y-2">
           {invoice.items.map((it) => (
             <div

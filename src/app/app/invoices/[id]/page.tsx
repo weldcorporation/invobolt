@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/session";
 import { isEmailEnabled } from "@/lib/email";
 import { getInvoice } from "@/lib/invoices";
 import { listClients } from "@/lib/clients";
+import { listItems } from "@/lib/items";
 import { todayIso } from "@/lib/status";
 import { InvoiceEditor } from "./InvoiceEditor";
 
@@ -21,9 +22,10 @@ export default async function EditInvoicePage({
   const { id } = await params;
   const userId = await requireUserId();
 
-  const [invoice, savedClients] = await Promise.all([
+  const [invoice, savedClients, savedItems] = await Promise.all([
     getInvoice(userId, id),
     listClients(userId),
+    listItems(userId),
   ]);
   if (!invoice) notFound();
 
@@ -33,6 +35,7 @@ export default async function EditInvoicePage({
       initialStatus={invoice.status}
       initialDocument={invoice.document}
       savedClients={savedClients}
+      savedItems={savedItems}
       initialShareToken={invoice.shareToken}
       initialPaymentLink={invoice.paymentLinkUrl}
       emailEnabled={isEmailEnabled()}

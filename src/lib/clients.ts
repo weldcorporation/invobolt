@@ -8,9 +8,10 @@
  */
 
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "./db";
 import { clientNameKey, normalizeParty } from "./party";
+import { isUniqueViolation } from "./pg-errors";
 import { isUuid } from "./uuid";
 import type { Party } from "./types";
 
@@ -80,6 +81,60 @@ export async function upsertClient(
     .returning({ id: clients.id, name: clients.name, party: clients.party });
 
   return row;
+}
+
+/**
+ * Import one Stripe customer as a saved client (v0.3).
+ *
+ * The upsert is keyed on the *Stripe id* (the partial unique index), so
+ * re-importing after a rename in Stripe updates the same client in place —
+ * a name-keyed upsert would resurrect the old name as a second row.
+ *
+ * When the insert instead trips the *name* index, the user already has a
+ * client under that name (saved by hand, or an earlier import). Names are the
+ * human identity here, so we adopt that row: attach the Stripe id and refresh
+ * the party. Callers validate the party first, like every other write.
+ */
+export async function importStripeClient(
+  userId: string,
+  stripeCustomerId: string,
+  party: Party,
+): Promise<void> {
+  const normalized = normalizeParty(party);
+
+  try {
+    await getDb()
+      .insert(clients)
+      .values({
+        userId,
+        name: normalized.name,
+        nameKey: clientNameKey(normalized.name),
+        party: normalized,
+        stripeCustomerId,
+      })
+      .onConflictDoUpdate({
+        target: [clients.userId, clients.stripeCustomerId],
+        targetWhere: sql`stripe_customer_id is not null`,
+        set: {
+          name: normalized.name,
+          nameKey: clientNameKey(normalized.name),
+          party: normalized,
+          updatedAt: new Date(),
+        },
+      });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+
+    await getDb()
+      .update(clients)
+      .set({ stripeCustomerId, party: normalized, updatedAt: new Date() })
+      .where(
+        and(
+          ownedClients(userId),
+          eq(clients.nameKey, clientNameKey(normalized.name)),
+        ),
+      );
+  }
 }
 
 /**

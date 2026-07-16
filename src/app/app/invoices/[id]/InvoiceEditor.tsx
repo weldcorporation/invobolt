@@ -13,7 +13,9 @@ import {
   type InvoiceStatus,
 } from "@/lib/status";
 import type { SavedClient } from "@/lib/clients";
-import type { Invoice, Locale, Party } from "@/lib/types";
+import type { SavedItem } from "@/lib/items";
+import { emptyItem, newId } from "@/lib/sample";
+import type { Invoice, LineItem, Locale, Party } from "@/lib/types";
 import {
   deleteInvoiceAction,
   saveInvoiceAction,
@@ -22,6 +24,7 @@ import {
 } from "../../actions";
 import { StatusBadge } from "../../StatusBadge";
 import { ClientPicker } from "./ClientPicker";
+import { ItemPicker } from "./ItemPicker";
 import { PaymentLinkControls } from "./PaymentLinkControls";
 import { SendControls } from "./SendControls";
 import { ShareControls } from "./ShareControls";
@@ -46,6 +49,7 @@ interface Props {
   /** Today, per the server — see the page component. */
   today: string;
   savedClients: SavedClient[];
+  savedItems: SavedItem[];
   initialShareToken: string | null;
   initialPaymentLink: string | null;
   /** Whether this deployment can send email (see `isEmailEnabled`). */
@@ -66,6 +70,7 @@ export function InvoiceEditor({
   initialDocument,
   today,
   savedClients,
+  savedItems,
   initialShareToken,
   initialPaymentLink,
   emailEnabled,
@@ -167,6 +172,27 @@ export function InvoiceEditor({
         message: "Couldn't reach the server — your defaults are unchanged.",
       });
     }
+  };
+
+  const onPickItem = (item: SavedItem) => {
+    const line: LineItem = {
+      id: newId(),
+      description: item.description,
+      quantity: 1,
+      // A foreign-currency price would be a silently wrong number on this
+      // invoice; insert without one and let the badge in the picker explain.
+      unitPrice:
+        item.currency === invoice.currency ? item.unitPriceCents / 100 : 0,
+      vatRate: item.vatRate ?? emptyItem().vatRate,
+    };
+    // A fresh draft has one blank line; picking should fill it, not stack
+    // under it.
+    const isBlank = (it: LineItem) => !it.description.trim() && it.unitPrice === 0;
+    const kept =
+      invoice.items.length === 1 && isBlank(invoice.items[0])
+        ? []
+        : invoice.items;
+    onChange({ ...invoice, items: [...kept, line] });
   };
 
   const onDelete = async () => {
@@ -300,6 +326,17 @@ export function InvoiceEditor({
                 // a client autosaves exactly like filling the fields by hand.
                 onPick={(client: Party) => onChange({ ...invoice, client })}
               />
+            }
+            // Rendered only when there is something to pick — a workspace
+            // without imported items sees the form exactly as instant mode.
+            itemPicker={
+              savedItems.length > 0 ? (
+                <ItemPicker
+                  items={savedItems}
+                  invoiceCurrency={invoice.currency}
+                  onPick={onPickItem}
+                />
+              ) : undefined
             }
           />
         </div>

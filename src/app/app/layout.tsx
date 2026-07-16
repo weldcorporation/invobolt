@@ -38,6 +38,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             >
               Clients
             </Link>
+            <Link
+              href="/app/import"
+              className="rounded-md px-3 py-1.5 font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Import
+            </Link>
           </nav>
         </div>
       </header>
