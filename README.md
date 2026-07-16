@@ -93,12 +93,12 @@ extra dependencies.
 - Hosted on **Vercel**; self-hostable
 
 Workspace mode adds **Neon** serverless Postgres (via Drizzle) and **Neon Auth**
-(Managed Better Auth) — both read only behind the `WORKSPACE_ENABLED` flag, so
+(Managed Better Auth) — both are used only when `WORKSPACE_ENABLED` is true, so
 instant mode still runs with zero env vars.
 
 ## Project structure
 
-```
+```text
 src/
 ├─ app/
 │  ├─ layout.tsx        # document shell + metadata
