@@ -23,19 +23,22 @@
  * - flag on, URL present → migrate, and let a failure fail the build.
  */
 import { spawnSync } from "node:child_process";
+import env from "@next/env";
 
-// `next build` and `drizzle-kit` both read .env on their own. Read it here too,
-// or a local run could skip migrations and then build workspace mode anyway —
-// the guard would be answering a different question than the app. Real
-// environment variables still win (loadEnvFile does not override), so Vercel's
-// dashboard config is unaffected; on Vercel there is no .env to find.
-if (typeof process.loadEnvFile === "function") {
-  try {
-    process.loadEnvFile();
-  } catch {
-    // No .env — the normal case on Vercel and in CI.
-  }
-}
+// Resolve the environment exactly as `next build` does — same files, same
+// precedence — using Next's own loader rather than an approximation of it.
+//
+// This must not be `process.loadEnvFile()`: that reads only `.env`, while Next
+// resolves a stack (`.env.production.local`, `.env.local`, `.env.production`,
+// `.env`). With a `.env.production.local` present, the two disagree — the
+// migration would target the database named in `.env` while the build compiled
+// against the one in `.env.production.local`. That is precisely the "migrated
+// the wrong database" failure this step exists to make impossible.
+//
+// Real environment variables still take precedence, so Vercel's dashboard
+// config wins; on Vercel there are no .env files to find and this is a no-op.
+// `false` selects the production stack, matching `next build`.
+env.loadEnvConfig(process.cwd(), false);
 
 const enabled = process.env.WORKSPACE_ENABLED === "true";
 const url = process.env.DATABASE_URL;
