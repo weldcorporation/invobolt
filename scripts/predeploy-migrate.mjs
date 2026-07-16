@@ -6,11 +6,13 @@
  * before that deployment ever serves a request. Vercel finishes the build
  * before routing traffic to it, so code can't go live ahead of its own tables.
  *
- * Wired up by `buildCommand` in vercel.json, deliberately — *not* by the
- * `vercel-build` naming convention. For a Next.js framework preset Vercel runs
- * the `build` script when one exists (ours does), so a `vercel-build` script on
- * its own would never execute and every deploy would silently skip migrations.
- * vercel.json can't say this itself, because JSON has nowhere to put it.
+ * Wired up by the explicit `buildCommand` in vercel.json — that override is what
+ * routes the deploy through this script. We can't instead lean on the
+ * `vercel-build` naming convention here: with the Next.js preset AND a `build`
+ * script present (ours is `next build`), Vercel runs `build`, so a lone
+ * `vercel-build` would never execute and every deploy would silently skip
+ * migrations. The override sidesteps that entirely. vercel.json can't carry this
+ * note itself, because JSON has nowhere to put it.
  *
  * The flag check must stay identical to `isWorkspaceEnabled()` in
  * src/lib/workspace.ts (`=== "true"`, not truthiness). If the two ever disagree,

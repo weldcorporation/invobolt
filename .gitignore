@@ -28,6 +28,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 
+# vercel — `vercel link` writes project/org ids here; not for a public repo
+.vercel
+
 # editor
 .vscode/*
 !.vscode/extensions.json
