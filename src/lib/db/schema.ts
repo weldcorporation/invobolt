@@ -21,6 +21,7 @@ import {
   text,
   timestamp,
   date,
+  boolean,
   doublePrecision,
   integer,
   jsonb,
@@ -29,6 +30,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type { BusinessProfile, Invoice, Party } from "@/lib/types";
+import type { Cadence } from "@/lib/cadence";
 import type { InvoiceStatus } from "@/lib/status";
 
 /**
@@ -201,7 +203,47 @@ export const invoiceEmails = pgTable(
   (t) => [index("invoice_emails_user_sent_idx").on(t.userId, t.sentAt)],
 );
 
+/**
+ * Recurring-invoice schedules (v0.3). `document` is the template the
+ * generator copies; its dates and number are recomputed per generation
+ * (issue = the scheduled date, due = issue + `paymentTermsDays`, number =
+ * next in the user's sequence) — literal values in the template would be
+ * stale by the second run.
+ *
+ * `nextIssueDate` is both the trigger and the claim: a schedule is due when
+ * it is ≤ today, and the cron advances it atomically in the UPDATE's WHERE
+ * clause so two overlapping runs cannot both generate the same period (see
+ * lib/recurring.ts).
+ */
+export const schedules = pgTable(
+  "schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    document: jsonb("document").notNull().$type<Invoice>(),
+    cadence: text("cadence").notNull().$type<Cadence>(),
+    nextIssueDate: date("next_issue_date").notNull(),
+    paymentTermsDays: integer("payment_terms_days").notNull().default(14),
+    // Auto-send pushes each generated draft through the same send path the
+    // editor uses, subject to the same daily cap. Off unless email works.
+    autoSend: boolean("auto_send").notNull().default(false),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("schedules_user_id_idx").on(t.userId),
+    // The cron's scan: active schedules ordered/filtered by due date.
+    index("schedules_due_idx").on(t.active, t.nextIssueDate),
+  ],
+);
+
 export type ClientRow = typeof clients.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type InvoiceEmailRow = typeof invoiceEmails.$inferSelect;
+export type ScheduleRow = typeof schedules.$inferSelect;

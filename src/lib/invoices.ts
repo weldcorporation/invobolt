@@ -168,10 +168,25 @@ async function numbersInYear(userId: string, year: number): Promise<string[]> {
  * and retry — the loser simply re-reads and takes the next number.
  */
 export async function createInvoice(userId: string): Promise<string> {
-  const year = new Date().getUTCFullYear();
   const blank = emptyInvoice(isoDate(0), isoDate(14));
   const profile = await getProfile(userId);
   const base = profile ? applyProfile(blank, profile) : blank;
+  return insertInvoiceWithFreshNumber(userId, base);
+}
+
+/**
+ * Insert `base` as a new draft, allocating the next free number in the year
+ * of its issue date. Shared by the editor's "New invoice" and the recurring
+ * generator (v0.3), which is why the year follows the *document's* date — a
+ * schedule generating January's invoice on 1 Jan must number it in the new
+ * year, whatever year the server thinks it is.
+ */
+export async function insertInvoiceWithFreshNumber(
+  userId: string,
+  base: Invoice,
+): Promise<string> {
+  const year =
+    Number(base.issueDate.slice(0, 4)) || new Date().getUTCFullYear();
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const taken = await numbersInYear(userId, year);

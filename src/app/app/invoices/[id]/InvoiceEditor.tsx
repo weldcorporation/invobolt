@@ -26,6 +26,7 @@ import { StatusBadge } from "../../StatusBadge";
 import { ClientPicker } from "./ClientPicker";
 import { ItemPicker } from "./ItemPicker";
 import { PaymentLinkControls } from "./PaymentLinkControls";
+import { RecurringControls } from "./RecurringControls";
 import { SendControls } from "./SendControls";
 import { ShareControls } from "./ShareControls";
 
@@ -34,6 +35,15 @@ import { ShareControls } from "./ShareControls";
  * enough that the "Saved" tick feels like a response to what you just typed.
  */
 const AUTOSAVE_MS = 700;
+
+/** issue → due in days, as the recurring terms default. 14 when unreadable. */
+function termsDaysFrom(issueDate: string, dueDate: string): number {
+  const issue = Date.parse(issueDate + "T00:00:00Z");
+  const due = Date.parse(dueDate + "T00:00:00Z");
+  if (Number.isNaN(issue) || Number.isNaN(due)) return 14;
+  const days = Math.round((due - issue) / 86_400_000);
+  return days >= 0 && days <= 365 ? days : 14;
+}
 
 type SaveState =
   | { kind: "idle" }
@@ -311,6 +321,12 @@ export function InvoiceEditor({
           onSent={() => setStatus((s) => (s === "draft" ? "sent" : s))}
         />
       )}
+
+      <RecurringControls
+        id={id}
+        defaultTermsDays={termsDaysFrom(invoice.issueDate, invoice.dueDate)}
+        emailEnabled={emailEnabled}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
         <div className="no-print">

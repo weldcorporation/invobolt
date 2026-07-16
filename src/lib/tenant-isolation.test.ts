@@ -18,6 +18,7 @@ const REPOSITORIES = [
   "profiles.ts",
   "emails.ts",
   "items.ts",
+  "schedules.ts",
 ];
 
 /**
@@ -76,6 +77,35 @@ describe.each(REPOSITORIES)("%s", (file) => {
     for (const helper of helpers) {
       expect(helper).toContain("userId");
     }
+  });
+});
+
+/**
+ * The one module allowed to query across tenants: the recurring generator,
+ * which runs for the *system* (a cron tick), not a session. It gets its own
+ * block rather than an entry above because its exception is the whole file,
+ * argued in its module comment — not one function that slipped the rule.
+ * Every row it touches carries its own user_id, and everything it does per
+ * row goes through the owner-scoped repositories with that id.
+ */
+describe("recurring.ts — the system actor", () => {
+  const source = read("recurring.ts");
+
+  it("scopes every query to the due-schedule scan or the atomic claim", () => {
+    const clauses = source.match(/\.where\([\s\S]{0,80}/g) ?? [];
+    expect(clauses.length).toBeGreaterThan(0);
+    for (const clause of clauses) {
+      expect(clause).toMatch(/dueSchedules\(|scheduleClaim\(/);
+    }
+  });
+
+  it("owns up to being the exception, in its own words", () => {
+    expect(source).toContain("deliberate exception to per-user scoping");
+  });
+
+  it("hands each row back to owner-scoped code by its own user id", () => {
+    expect(source).toContain("insertInvoiceWithFreshNumber(schedule.userId");
+    expect(source).toContain("sendInvoiceEmailFlow(");
   });
 });
 

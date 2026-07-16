@@ -36,6 +36,13 @@
       "when": 1784210026266,
       "tag": "0004_stripe-import",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784210358992,
+      "tag": "0005_recurring-schedules",
+      "breakpoints": true
     }
   ]
 }
