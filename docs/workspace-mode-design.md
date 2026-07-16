@@ -158,6 +158,37 @@ Why Neon Auth over Auth.js: it removes the auth database schema we'd otherwise o
 and keeps auth + data in one Neon project. The trade-off is coupling to Neon (the
 SDK is currently beta) — acceptable because Neon is already the documented Postgres.
 
+### How a magic link actually signs you in
+
+Non-obvious, and expensive to re-derive — measured against a live Neon instance,
+not inferred from the SDK:
+
+1. `signIn.magicLink({ callbackURL: "/auth/callback" })` POSTs through our
+   `/api/auth` proxy. The response sets **no cookie**. Nothing is pending on our
+   origin.
+2. The emailed link points at **Neon's** origin, not ours:
+   `…neonauth…/neondb/auth/magic-link/verify?token=…&callbackURL=…`. Neon
+   verifies the token there and answers `302` — again setting **no cookie** —
+   to `https://<us>/auth/callback?neon_auth_session_verifier=ml-…`.
+   The origin in `callbackURL` must be in Neon's **trusted domains** or this
+   redirect is refused.
+3. The verifier is a one-time claim ticket, not a session. Only the **client**
+   redeems it: the SDK's `getSession` hook reads it off `window.location` and
+   attaches it to its `/api/auth/get-session` call. That request passes through
+   our proxy, which mints the session cookie **on our origin** from Neon's
+   response. Then the client strips the param from the URL.
+
+So the session can only be created by a page that loads and runs JavaScript. It
+**cannot** be `/app`: that is a Server Component needing the cookie before it
+renders, and the proxy would bounce the request to sign-in before any client code
+ran — killing the exchange that would have let it through. Hence `/auth/callback`,
+and hence `/auth/**` staying outside the proxy matcher.
+
+Dead ends worth not repeating: the SDK middleware *does* have a verifier
+exchange, but it also demands a `session_challange` cookie that only the OAuth
+flow sets, so it never fires for magic link. And `sameSite` is not involved —
+sign-in works under `strict` too; the exchange is a same-origin fetch.
+
 ## Routing & rendering
 
 | Route | Rendering | Auth | Notes |
@@ -168,6 +199,7 @@ SDK is currently beta) — acceptable because Neon is already the documented Pos
 | `/app/clients` | server | required | saved clients CRUD |
 | `/i/[shareToken]` | server, never cached | none (token = capability) | read-only public invoice — see Feature notes for why not cached |
 | `/auth/sign-in` | client | none | magic-link sign-in (outside the proxy matcher) |
+| `/auth/callback` | client | none | where magic links land; exchanges the verifier (below) |
 | `/api/auth/[...path]` | route handler | — | Neon Auth proxy |
 
 The editor on `/app/invoices/[id]` reuses `InvoiceForm` + `InvoiceDocument`

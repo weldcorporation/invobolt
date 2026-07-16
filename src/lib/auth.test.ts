@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * The cookie policy the magic-link flow depends on.
+ * The session cookie policy.
  *
  * `sameSite: "lax"` looks like a weaker choice than the SDK's `strict` default,
- * so it is the kind of line a security pass "hardens" — and the breakage it
- * causes is silent and remote: the email still sends, the token still verifies,
- * the user just lands back on the login page. Nothing in the type system or the
- * build catches it. This test does, and says why.
+ * so it is the kind of line a security pass "hardens" — and what it breaks is
+ * quiet: a valid session simply renders logged-out when the user arrives from an
+ * off-site link. Nothing in the type system or the build catches it. This test
+ * does, and says why.
+ *
+ * It does not guard magic-link sign-in — that works under `strict` too. See the
+ * comment in auth.ts for what actually establishes the session.
  */
 const createNeonAuth = vi.fn((_config: unknown) => ({}) as never);
 
@@ -28,14 +31,13 @@ describe("getAuth", () => {
     process.env.NEON_AUTH_COOKIE_SECRET = "x".repeat(32);
   });
 
-  it("sets SameSite=Lax, without which magic links land you back on sign-in", async () => {
+  it("sets SameSite=Lax, so an off-site link into /app keeps the session", async () => {
     const getAuth = await freshGetAuth();
     getAuth();
 
-    // Returning from the emailed link is a top-level navigation started off-site,
-    // so `strict` withholds the challenge cookie the proxy must pair with the
-    // `neon_auth_session_verifier` param. The exchange never runs, no session is
-    // minted, and the proxy bounces the user to sign-in.
+    // Following a link into /app from an email or a chat message is a top-level
+    // navigation that began off-site. `strict` withholds the session cookie for
+    // it, so the proxy sees no session and bounces a signed-in user to sign-in.
     expect(createNeonAuth).toHaveBeenCalledWith(
       expect.objectContaining({
         cookies: expect.objectContaining({ sameSite: "lax" }),
